@@ -1,0 +1,39 @@
+{
+  "name": "moxml-ts",
+  "version": "0.1.0",
+  "description": "The moxml XML processing model - TypeScript binding over moxml-rs + leptris-wasm",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lutaml/moxml-ts"
+  },
+  "files": [
+    "dist/",
+    "vendor/leptris-wasm/leptris.js",
+    "vendor/leptris-wasm/leptris.d.ts",
+    "vendor/leptris-wasm/leptris_bg.wasm",
+    "vendor/leptris-wasm/leptris_bg.wasm.d.ts",
+    "vendor/leptris-wasm/LICENSE"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "fetch:wasm": "bash scripts/fetch-wasm.sh"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}
