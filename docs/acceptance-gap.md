@@ -7,7 +7,7 @@ for parse/nodes/XPath/builder/serialize, and the **model faces**
 (moxml-wasm, pinned `v0.1.1`) for the pure-logic model — one
 implementation of the model, bound per language, never re-ported.
 
-## Engine-tier faces (leptris-wasm, pinned `leptris-v1.6.0`)
+## Engine-tier faces (leptris-wasm, pinned `leptris-v1.6.1`)
 
 | served | face |
 |---|---|
@@ -15,10 +15,10 @@ implementation of the model, bound per language, never re-ported.
 | yes | serialize round-trip (namespaces, CDATA, comments, PIs) |
 | yes | builder (`createElement`/`createText`/`addChild`/`setAttribute`/`setRoot` — the placeholder root is replaced) |
 | yes | XPath 1.0 — string-value (`xpath`), count (`xpathCount`), and the FULL typed result (`xpathTyped`: nodeset/boolean/number/string) |
+| yes | XSD validation (`compileXsd` + `Schema.validate` — compile and validate expose together; no half-faces) |
 
-| not served yet | what it needs |
-|---|---|
-| XSD `validate` | wired in leptris/leptris-rs#18 — rides the next train; `compile_xsd` stays unexposed until validate is served beside it (no half-faces) |
+**The Opal acceptance baseline is covered.** Phase 4 (deleting the
+Opal surface from lutaml/moxml) is unblocked pending owner sign-off.
 
 ## Model-tier faces (moxml-wasm, pinned `v0.1.1`)
 

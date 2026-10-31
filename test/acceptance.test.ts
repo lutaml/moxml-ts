@@ -138,3 +138,28 @@ describe("typed xpath (full XPath 1.0 result shapes)", () => {
     expect(str.stringValue()).toBe("ab");
   });
 });
+
+// XSD validate (leptris-wasm 1.6.1): compile + validate expose
+// together — no half-faces.
+
+describe("xsd validation", () => {
+  it("admits a valid instance and rejects an invalid one with rows", async () => {
+    const { compileXsd, parse } = await import("../src/index.js");
+    const schema = await compileXsd(
+      `<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+        <xs:element name="r"><xs:complexType><xs:sequence>
+          <xs:element name="a" type="xs:string" maxOccurs="unbounded"/>
+        </xs:sequence></xs:complexType></xs:element>
+      </xs:schema>`,
+    );
+    const good = schema.validate(await parse("<r><a/><a/></r>"));
+    expect(good.valid).toBe(true);
+    expect(good.errors).toEqual([]);
+
+    const bad = schema.validate(await parse("<r><b/></r>"));
+    expect(bad.valid).toBe(false);
+    expect(bad.errors.length).toBeGreaterThan(0);
+    expect(bad.errors[0]).toContain("content model");
+    schema.dispose();
+  });
+});
