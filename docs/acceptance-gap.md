@@ -1,9 +1,14 @@
-# Acceptance gap (moxml-ts#1, slice 1)
+# Acceptance gap (moxml-ts#1, slice 2)
 
 The acceptance baseline is the faces the legacy Opal surface pinned:
-parse, XPath, serialize, builder, entities. This package's engine tier
-is leptris-wasm; the bundle pinned here (leptris-rs `leptris-v1.5.0`)
-serves a **string-level** face:
+parse, XPath, serialize, builder, entities. The package binds two
+wasm tiers: the **engine** (leptris-wasm, pinned
+`leptris-v1.5.0`) for parse/XPath/serialize, and the **model faces**
+(moxml-wasm, pinned by moxml-rs release — currently `v0.1.0`) for the
+pure-logic model — one implementation of the model, bound per
+language, never re-ported.
+
+## Engine-tier faces (leptris-wasm)
 
 | served today | face |
 |---|---|
@@ -17,11 +22,19 @@ serves a **string-level** face:
 | node handles (element/text/... navigation, `children`, `name`, `text`, `data`) | wasm-bindgen node handles with identity + document order |
 | full XPath result shapes (node-sets to iterate, booleans, numbers) | typed result face, not string-value only |
 | builder DSL (create element/text, attributes, `add_child`) | write face on the wasm side |
-| entity registry (`declared?`, codepoint faces) | port of the moxml-rs `entity_registry` face + engine entity-ref support |
 | XSD `validate` | the bundle exports `compile_xsd` but no validate face yet |
 
-Slice 1 transfers the Opal expectations verbatim **where the face
-exists** (test/acceptance.test.ts). The remaining expectations transfer
-when the engine asks above land — they ride leptris-rs asks, never
-local shims, so the single-XML-processing-model invariant holds in
-this language too.
+These ride leptris/leptris-rs#15 — never local shims.
+
+## Model-tier faces (moxml-wasm)
+
+| served | face |
+|---|---|
+| yes | builtin lexical table (`validLexical`, `lexicalNames`) |
+| yes | wildcard admission + exclusion (`WildcardFace`) |
+| yes | entity registry (`RegistryFace`) |
+| not yet | XSD-regex translation — the face translates to the HOST dialect; the JS emission is its own translation problem (moxml-rs follow-up), so the `xsd_regex_translation` family stays out of the conformance runner until then |
+
+The conformance runner (`test/conformance.test.ts`) drives every row
+of the vendored dataset (fetched at the moxml-rs pin) through these
+faces — 0 divergences; missing rows are failures.
