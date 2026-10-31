@@ -26,15 +26,16 @@ language, never re-ported.
 
 These ride leptris/leptris-rs#15 — never local shims.
 
-## Model-tier faces (moxml-wasm)
+## Model-tier faces (moxml-wasm, pinned `v0.1.1`)
 
 | served | face |
 |---|---|
 | yes | builtin lexical table (`validLexical`, `lexicalNames`) |
+| yes | XSD-regex translation to the JS dialect (`translateRegexJs` — compile with `u`, test through the JS engine) |
 | yes | wildcard admission + exclusion (`WildcardFace`) |
 | yes | entity registry (`RegistryFace`) |
-| not yet | XSD-regex translation — the face translates to the HOST dialect; the JS emission is its own translation problem (moxml-rs follow-up), so the `xsd_regex_translation` family stays out of the conformance runner until then |
 
-The conformance runner (`test/conformance.test.ts`) drives every row
-of the vendored dataset (fetched at the moxml-rs pin) through these
-faces — 0 divergences; missing rows are failures.
+The conformance runner (`test/conformance.test.ts`) drives **every
+row of all four families** of the vendored dataset (fetched at the
+moxml-rs pin) through these faces — 0 divergences; missing rows are
+failures.
