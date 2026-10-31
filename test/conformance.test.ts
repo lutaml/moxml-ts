@@ -1,15 +1,15 @@
 // The cross-language conformance runner (moxml-ts): every row of the
 // vendored dataset (fetched at the moxml-rs pin by fetch-wasm.sh)
-// must answer through the wasm model faces exactly as the Ruby pins
-// expect. Missing rows are failures — coverage is part of
-// conformance. The xsd_regex_translation family is NOT in this
-// runner yet: the regex face translates to the host dialect and the
-// JS emission is its own translation problem (moxml-rs follow-up).
+// must answer through the wasm faces exactly as the Ruby pins expect.
+// Missing rows are failures — coverage is part of conformance. The
+// regex family compiles the JS-dialect translation through the real
+// JS engine (u flag).
 import { describe, expect, it, beforeAll } from "vitest";
 import { readFile } from "node:fs/promises";
 import {
   initModel,
   RegistryFace,
+  translate_regex_js,
   valid_lexical,
   WildcardFace,
 } from "../src/model.js";
@@ -32,6 +32,30 @@ describe("conformance: builtin_lexical", () => {
       expect(valid_lexical(row.type, row.lexical), `${row.type} ${row.lexical}`).toBe(
         row.valid,
       );
+    }
+  });
+});
+
+describe("conformance: xsd_regex_translation", () => {
+  it("carries the family", () => {
+    expect(dataset.cases.xsd_regex_translation.length).toBeGreaterThanOrEqual(20);
+  });
+
+  it("answers every row through the JS engine on the wasm translation", () => {
+    for (const row of dataset.cases.xsd_regex_translation) {
+      const js = translate_regex_js(row.pattern);
+      if (row.translatable) {
+        expect(js, `${row.pattern}: dataset says translatable`).toBeDefined();
+        let answer: boolean | undefined;
+        try {
+          answer = new RegExp(js!, "u").test(row.value);
+        } catch (e) {
+          throw new Error(`${row.pattern}: JS rejects the translation: ${String(e)}`);
+        }
+        expect(answer, `${row.pattern} on ${JSON.stringify(row.value)}`).toBe(row.matches);
+      } else {
+        expect(js, `${row.pattern}: dataset says NOT translatable`).toBeUndefined();
+      }
     }
   });
 });

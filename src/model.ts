@@ -6,6 +6,7 @@ import {
   default as modelInit,
   initSync as modelInitSync,
   lexical_names,
+  translate_regex_js,
   valid_lexical,
   WildcardFace,
   RegistryFace,
@@ -13,7 +14,13 @@ import {
   type InitOutput as ModelInitOutput,
 } from "../vendor/moxml-wasm/moxml.js";
 
-export { lexical_names, valid_lexical, WildcardFace, RegistryFace };
+export {
+  lexical_names,
+  translate_regex_js,
+  valid_lexical,
+  WildcardFace,
+  RegistryFace,
+};
 
 let initPromise: Promise<ModelInitOutput> | null = null;
 
