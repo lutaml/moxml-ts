@@ -8,6 +8,9 @@ import {
 } from "../vendor/leptris-wasm/leptris.js";
 import { engine } from "./engine.js";
 
+/** The native document handle the engine tier owns. */
+export type NativeDocument = WasmDocument;
+
 export class Node {
   constructor(private readonly native: NativeNode) {}
 
@@ -132,6 +135,12 @@ export class Document {
   /** Serialize the document back to XML. */
   toXml(): string {
     return this.native.to_xml();
+  }
+
+  /** The native handle (for the sibling faces that consume whole
+   * documents, e.g. XSD validate). */
+  internal(): NativeDocument {
+    return this.native;
   }
 
   dispose(): void {
