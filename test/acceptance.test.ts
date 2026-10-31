@@ -5,7 +5,13 @@
 // yet (node handles, builder, entities, XSD validate) are enumerated
 // in docs/acceptance-gap.md and ride engine asks, not local shims.
 import { describe, expect, it, beforeAll } from "vitest";
-import { initEngine, parse, Document } from "../src/index.js";
+import {
+  createDocument,
+  initEngine,
+  parse,
+  Document,
+  Node,
+} from "../src/index.js";
 
 beforeAll(async () => {
   await initEngine();
@@ -70,5 +76,65 @@ describe("xpath (full XPath 1.0 is the contract; the wasm face serves string-val
 describe("errors (reference_opal: raises a named ParseError for malformed input)", () => {
   it("rejects malformed input with the engine's error, not a silent answer", async () => {
     await expect(parse("<r><c></r>")).rejects.toThrow();
+  });
+});
+
+// Slice 4 (leptris-wasm 1.6.0): node handles, builder, typed XPath —
+// the opal_smoke expectations transferred verbatim.
+
+describe("navigation (opal_smoke: parses XML string to document)", () => {
+  it("answers root and child names through node handles", async () => {
+    const doc = await parse("<root><child>text</child></root>");
+    const root = doc.root()!;
+    expect(root.name()).toBe("root");
+    expect(root.children()[0]!.name()).toBe("child");
+  });
+
+  it("reads child kinds and text content in document order", async () => {
+    const doc = await parse("<root>lead<mid/>tail</root>");
+    const children = doc.root()!.children();
+    expect(children.map((c) => c.kind())).toEqual([2, 1, 2]); // Text=2, Element=1 (WasmNodeKind)
+    expect(children[0]!.text()).toBe("lead");
+    expect(doc.root()!.text()).toBe("leadtail");
+  });
+});
+
+describe("builder (opal_smoke: builds XML document from scratch)", () => {
+  it("builds XML document from scratch", async () => {
+    const doc = await createDocument();
+    const root = doc.createElement("root");
+    root.setAttribute("attr", "value");
+    const text = doc.createText("hello");
+    root.addChild(text);
+    doc.setRoot(root);
+
+    expect(doc.toXml()).toContain('attr="value"');
+    expect(doc.toXml()).toContain("hello");
+  });
+});
+
+describe("typed xpath (full XPath 1.0 result shapes)", () => {
+  it("returns node-set rows in document order", async () => {
+    const doc = await parse("<root><i>1</i><i>2</i></root>");
+    const result = doc.xpathTyped("/root/i");
+    expect(result.isNodeset()).toBe(true);
+    const nodes = result.nodes();
+    expect(nodes.length).toBe(2);
+    expect(nodes.map((n: Node) => n.text())).toEqual(["1", "2"]);
+  });
+
+  it("returns booleans and numbers with their kinds", async () => {
+    const doc = await parse("<root><i/><i/></root>");
+    const flag = doc.xpathTyped("count(/root/i) = 2");
+    expect(flag.kind()).toBe(1); // boolean
+    expect(flag.boolean()).toBe(true);
+
+    const count = doc.xpathTyped("count(/root/i)");
+    expect(count.kind()).toBe(2); // number
+    expect(count.number()).toBe(2);
+
+    const str = doc.xpathTyped("concat('a', 'b')");
+    expect(str.kind()).toBe(3); // string
+    expect(str.stringValue()).toBe("ab");
   });
 });

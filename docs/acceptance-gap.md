@@ -2,29 +2,23 @@
 
 The acceptance baseline is the faces the legacy Opal surface pinned:
 parse, XPath, serialize, builder, entities. The package binds two
-wasm tiers: the **engine** (leptris-wasm, pinned
-`leptris-v1.5.0`) for parse/XPath/serialize, and the **model faces**
-(moxml-wasm, pinned by moxml-rs release — currently `v0.1.0`) for the
-pure-logic model — one implementation of the model, bound per
-language, never re-ported.
+wasm tiers: the **engine** (leptris-wasm, pinned `leptris-v1.6.0`)
+for parse/nodes/XPath/builder/serialize, and the **model faces**
+(moxml-wasm, pinned `v0.1.1`) for the pure-logic model — one
+implementation of the model, bound per language, never re-ported.
 
-## Engine-tier faces (leptris-wasm)
+## Engine-tier faces (leptris-wasm, pinned `leptris-v1.6.0`)
 
-| served today | face |
+| served | face |
 |---|---|
-| yes | parse to document, root name |
+| yes | parse to document, root name, node handles (`Node`: name/text/kind/children in document order) |
 | yes | serialize round-trip (namespaces, CDATA, comments, PIs) |
-| yes | XPath 1.0 — string-value of the result (`xpath`) |
-| yes | XPath 1.0 — result count (`xpathCount`) |
+| yes | builder (`createElement`/`createText`/`addChild`/`setAttribute`/`setRoot` — the placeholder root is replaced) |
+| yes | XPath 1.0 — string-value (`xpath`), count (`xpathCount`), and the FULL typed result (`xpathTyped`: nodeset/boolean/number/string) |
 
-| not served by leptris-wasm 1.5.0 | what it needs from the engine |
+| not served yet | what it needs |
 |---|---|
-| node handles (element/text/... navigation, `children`, `name`, `text`, `data`) | wasm-bindgen node handles with identity + document order |
-| full XPath result shapes (node-sets to iterate, booleans, numbers) | typed result face, not string-value only |
-| builder DSL (create element/text, attributes, `add_child`) | write face on the wasm side |
-| XSD `validate` | the bundle exports `compile_xsd` but no validate face yet |
-
-These ride leptris/leptris-rs#15 — never local shims.
+| XSD `validate` | wired in leptris/leptris-rs#18 — rides the next train; `compile_xsd` stays unexposed until validate is served beside it (no half-faces) |
 
 ## Model-tier faces (moxml-wasm, pinned `v0.1.1`)
 
