@@ -23,3 +23,34 @@ jobs:
       - run: npm install
       - run: npm run typecheck
       - run: npm test
+
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: bash scripts/fetch-wasm.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - run: npm install
+      - run: npx playwright install chromium --with-deps
+      - run: npm run build
+      - run: node test/browser.run.mjs
+
+  bun:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: bash scripts/fetch-wasm.sh
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - run: npm install
+      - run: bun run test

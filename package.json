@@ -35,10 +35,13 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "fetch:wasm": "bash scripts/fetch-wasm.sh",
     "pretest": "bash scripts/fetch-wasm.sh",
-    "pretypecheck": "bash scripts/fetch-wasm.sh"
+    "pretypecheck": "bash scripts/fetch-wasm.sh",
+    "test:browser": "node test/browser.run.mjs",
+    "test:bun": "bun run test"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
+    "playwright": "^1.64.1",
     "typescript": "^5.6.0",
     "vitest": "^2.1.0"
   }
