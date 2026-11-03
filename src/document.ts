@@ -4,6 +4,7 @@
 // moxml contract these answers honor is the processing model.
 import {
   WasmDocument,
+  type WasmAttribute,
   type WasmXPathResult as NativeXPathResult,
 } from "../vendor/leptris-wasm/leptris.js";
 import { engine } from "./engine.js";
@@ -93,18 +94,20 @@ export class Node {
     return this.owner.xpath(expression);
   }
 
-  /** The element's qualified name as written ("p:b"). name() answers
-   * the local part only; the prefix is only known to the engine's
-   * XPath, so a node not attached to the document answers name(). */
+  /** The element's qualified name as written ("p:b"). Answered by the
+   * per-node faces (O(1)); undefined for a non-element. */
   qualifiedName(): string | undefined {
-    const path = this.path();
-    return path === undefined ? this.name() : this.xp(`name(${path})`);
+    if (this.native.kind() !== ELEMENT_KIND) return undefined;
+    const local = this.native.name();
+    if (local === undefined) return undefined;
+    const prefix = this.native.prefix();
+    return prefix === undefined || prefix === "" ? local : `${prefix}:${local}`;
   }
 
   /** Prefix of the element's qualified name ("" when unprefixed). */
   prefix(): string | undefined {
-    const name = this.qualifiedName();
-    return name === undefined ? undefined : splitQName(name).prefix;
+    if (this.native.kind() !== ELEMENT_KIND) return undefined;
+    return this.native.prefix() ?? "";
   }
 
   /** Local part of the element's qualified name. */
@@ -113,10 +116,10 @@ export class Node {
   }
 
   /** The element's namespace URI ("" when in no namespace); undefined
-   * for a non-element or an element not attached to the document. */
+   * for a non-element. */
   namespaceUri(): string | undefined {
-    const path = this.path();
-    return path === undefined ? undefined : this.xp(`namespace-uri(${path})`);
+    if (this.native.kind() !== ELEMENT_KIND) return undefined;
+    return this.native.namespace_uri() ?? "";
   }
 
   /** Every namespace binding in scope on the element (including the
@@ -156,11 +159,35 @@ export class Node {
   }
 
   /** The element's attributes (namespace declarations excluded) with
-   * name, prefix, namespace URI and value. The engine returns an empty
-   * namespace-uri() for prefixed attributes, so the URI is resolved
-   * from the prefix binding in scope. Undefined when the element is
-   * not attached to the document. */
+   * name, prefix, namespace URI and value, from one batched crossing.
+   * Undefined for a non-element. */
   attributes(): Attribute[] | undefined {
+    if (this.native.kind() !== ELEMENT_KIND) return undefined;
+    if (this.owner.snapshotTrapped) return this.attributesViaXPath();
+    let pairs: WasmAttribute[];
+    try {
+      pairs = this.native.attribute_pairs();
+    } catch {
+      // leptris-wasm (1.6.2 through 1.6.5) traps in the attribute
+      // snapshot (wasm `unreachable`) when a no-namespace attribute
+      // follows a namespaced one. Repeated traps corrupt the wasm
+      // heap (memory access out of bounds after ~3,600), so the first
+      // trap switches this document to the positional-XPath read.
+      this.owner.snapshotTrapped = true;
+      return this.attributesViaXPath();
+    }
+    const out: Attribute[] = [];
+    for (const pair of pairs) {
+      const name = pair.name;
+      if (name === "xmlns" || name.startsWith("xmlns:")) continue;
+      const { prefix, localName } = splitQName(name);
+      const namespaceUri = prefix === "xml" ? XML_NS : (pair.uri ?? "");
+      out.push({ name, prefix, localName, namespaceUri, value: pair.value });
+    }
+    return out;
+  }
+
+  private attributesViaXPath(): Attribute[] | undefined {
     const path = this.path();
     if (path === undefined) return undefined;
     const count = this.owner.xpathCount(`${path}/@*`);
@@ -297,6 +324,10 @@ export class XPathResult {
 }
 
 export class Document {
+  /** Set once the engine's attribute snapshot has trapped on this
+   * document; see Node.attributes(). */
+  snapshotTrapped = false;
+
   constructor(private readonly native: WasmDocument) {}
 
   /** Root element name, or undefined for an empty document. */

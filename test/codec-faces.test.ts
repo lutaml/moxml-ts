@@ -47,9 +47,9 @@ describe("namespace reads", () => {
     expect(root.children()[0].declaredNamespaces()).toEqual([]);
   });
 
-  it("answers undefined for a node that is not an attached element", async () => {
+  it("answers from the node itself when detached; undefined for non-elements", async () => {
     const doc = await createDocument();
-    expect(doc.createElement("loose").namespaceUri()).toBeUndefined();
+    expect(doc.createElement("loose").namespaceUri()).toBe("");
     expect(doc.createText("t").namespaceUri()).toBeUndefined();
   });
 });
@@ -156,5 +156,43 @@ describe("UPSTREAM gaps (leptris-wasm / moxml-wasm exports missing)", () => {
   it("reports no position for malformed input (needs line/column on the parse error)", async () => {
     const error = await parse("<r>\n<c>\n</r>").catch((e: Error) => e);
     expect(String(error)).not.toMatch(/line|column|\b3\b/i);
+  });
+});
+
+describe("per-node faces scale linearly", () => {
+  it("20,000 siblings: namespaceUri() + attributes() under 500 ms", async () => {
+    const n = 20000;
+    const xml =
+      '<r xmlns="urn:d" xmlns:p="urn:p">' +
+      Array.from({ length: n }, (_, i) => `<p:c y="2" p:k="${i}"/>`).join("") +
+      "</r>";
+    const root = (await parse(xml)).root()!;
+    const kids = root.children();
+    const t0 = performance.now();
+    let ok = 0;
+    for (const kid of kids) {
+      const attrs = kid.attributes()!;
+      if (kid.namespaceUri() === "urn:p" && attrs[1].namespaceUri === "urn:p" && attrs[0].namespaceUri === "") ok++;
+    }
+    const ms = performance.now() - t0;
+    console.log(`faces timing: ${n} siblings in ${ms.toFixed(1)} ms`);
+    expect(ok).toBe(n);
+    expect(ms).toBeLessThan(500);
+  });
+});
+
+describe("attribute snapshot engine trap", () => {
+  it("still answers attributes for a no-namespace attribute after a namespaced one", async () => {
+    const xml =
+      '<r xmlns:p="urn:p">' +
+      Array.from({ length: 300 }, (_, i) => `<c p:k="${i}" y="2"/>`).join("") +
+      "</r>";
+    const kids = (await parse(xml)).root()!.children();
+    for (const [i, kid] of kids.entries()) {
+      expect(kid.attributes()).toEqual([
+        { name: "p:k", prefix: "p", localName: "k", namespaceUri: "urn:p", value: String(i) },
+        { name: "y", prefix: "", localName: "y", namespaceUri: "", value: "2" },
+      ]);
+    }
   });
 });
