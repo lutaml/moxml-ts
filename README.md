@@ -23,3 +23,15 @@ See [docs/architecture.md](docs/architecture.md) for the layered architecture an
 ## Team
 
 Permissions mirror [lutaml/moxml](https://github.com/lutaml/moxml) (staff admin; developers/ci/editors push). All changes via PRs.
+
+## Gaps that need a wasm export (not shimmed here)
+
+These need a change in moxml-rs / leptris, so they are not faked in TypeScript;
+`test/codec-faces.test.ts` pins each so it goes red when the export lands.
+
+- Comment, CDATA and processing-instruction nodes: `WasmDocument.create_comment`,
+  `create_cdata`, `create_pi`.
+- Removing an attribute: `WasmNode.remove_attribute`.
+- Parse policy: a parse-options argument with a maximum entity expansion
+  (a 10^6x entity bomb currently expands in full).
+- Malformed-input errors with line and column.
