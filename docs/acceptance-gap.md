@@ -7,7 +7,7 @@ for parse/nodes/XPath/builder/serialize, and the **model faces**
 (moxml-wasm, pinned `v0.1.1`) for the pure-logic model — one
 implementation of the model, bound per language, never re-ported.
 
-## Engine-tier faces (leptris-wasm, pinned `leptris-v1.6.1`)
+## Engine-tier faces (leptris-wasm, pinned `leptris-v1.6.5`)
 
 | served | face |
 |---|---|
