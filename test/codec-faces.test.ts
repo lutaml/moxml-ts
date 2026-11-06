@@ -207,3 +207,61 @@ describe("attribute snapshot soak", () => {
     }
   }, 120_000);
 });
+
+describe("round-2 probe findings", () => {
+  const TRAP = '<r><a xmlns:p="urn:u" p:x="1" y="2"/><b/></r>';
+
+  it("F1: a trap-shaped element moved under a detached holder never reaches the native snapshot", async () => {
+    // Before: attributes() returned undefined, set snapshotTrapped, and ~4000
+    // caught traps killed the process (memory access out of bounds).
+    for (let i = 0; i < 6000; i++) {
+      const doc = await parse(TRAP);
+      const [a] = doc.xpathTyped("/r/a").nodes();
+      const moved = doc.createElement("holder").addChild(a);
+      expect(() => moved.attributes()).toThrow(/detached/);
+      expect(doc.snapshotTrapped).toBe(false);
+    }
+  }, 120_000);
+
+  it("F1: once the moved element is attached again its attributes are all read", async () => {
+    const doc = await parse(TRAP);
+    const [a] = doc.xpathTyped("/r/a").nodes();
+    const holder = doc.createElement("holder");
+    const moved = holder.addChild(a);
+    const attached = doc.root()!.addChild(holder).children()[0];
+    expect(moved.qualifiedName()).toBe("a");
+    expect(attached.attributes()!.map((x) => [x.name, x.namespaceUri, x.value])).toEqual([
+      ["p:x", "urn:u", "1"],
+      ["y", "", "2"],
+    ]);
+    expect(doc.snapshotTrapped).toBe(false);
+  });
+
+  it("F2: moving an attached node does not leave stale paths on its siblings", async () => {
+    const doc = await parse('<r><a xmlns:pa="urn:a"/><b xmlns:pb="urn:b"/><c xmlns:pc="urn:c"/></r>');
+    const root = doc.root()!;
+    const [a, b, c] = root.children();
+    expect(b.declaredNamespaces()).toEqual([{ prefix: "pb", uri: "urn:b" }]);
+    root.addChild(a);
+    expect(doc.xpath("concat(name(/r/*[1]),name(/r/*[2]),name(/r/*[3]))")).toBe("bca");
+    expect(b.declaredNamespaces()).toEqual([{ prefix: "pb", uri: "urn:b" }]);
+    expect(c.declaredNamespaces()).toEqual([{ prefix: "pc", uri: "urn:c" }]);
+    expect(root.children().map((n) => n.declaredNamespaces()![0].prefix)).toEqual(["pb", "pc", "pa"]);
+  });
+
+  it("F3: the XPath fallback and the snapshot report the same attributes", async () => {
+    // Builder documents are read through XPath; parsed ones through the snapshot.
+    const built = await createDocument();
+    const r = built.setRoot(built.createElement("a"));
+    r.setAttributeNS("urn:u", "p:x", "1");
+    r.setAttribute("y", "2");
+    const parsed = (await parse('<a xmlns:p="urn:u" p:x="1" y="2"/>')).root()!;
+    const view = (n: typeof r) => n.attributes()!.map((x) => [x.name, x.namespaceUri, x.value]);
+    expect(view(r)).toEqual([
+      ["p:x", "urn:u", "1"],
+      ["y", "", "2"],
+    ]);
+    expect(view(r)).toEqual(view(parsed));
+    expect(r.getAttribute("xmlns:p")).toBeUndefined();
+  });
+});
