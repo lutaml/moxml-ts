@@ -196,3 +196,14 @@ describe("attribute snapshot engine trap", () => {
     }
   });
 });
+
+describe("attribute snapshot soak", () => {
+  it("parses 10,000 documents with a no-namespace attribute after a namespaced one", async () => {
+    for (let i = 0; i < 10_000; i++) {
+      const doc = await parse('<a xmlns:p="urn:u" p:x="1" y="2"/>');
+      const attrs = doc.root()!.attributes()!;
+      expect(attrs.length).toBe(2);
+      expect(attrs[1].value).toBe("2");
+    }
+  }, 120_000);
+});
