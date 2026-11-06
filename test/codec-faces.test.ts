@@ -3,7 +3,14 @@
 // What the shipped wasm cannot do is pinned at the bottom as UPSTREAM
 // gaps: each names the export that would be needed.
 import { beforeAll, describe, expect, it } from "vitest";
-import { createDocument, initEngine, initModel, parse } from "../src/index.js";
+import {
+  AttributeLimitError,
+  MAX_ATTRIBUTES,
+  createDocument,
+  initEngine,
+  initModel,
+  parse,
+} from "../src/index.js";
 
 beforeAll(async () => {
   await initEngine();
@@ -263,5 +270,71 @@ describe("round-2 probe findings", () => {
     ]);
     expect(view(r)).toEqual(view(parsed));
     expect(r.getAttribute("xmlns:p")).toBeUndefined();
+  });
+});
+
+describe("wide elements (leptris-wasm keeps the attribute count in a byte)", () => {
+  const wide = (n: number, extra = "") =>
+    `<r id="1" ${extra}` + Array.from({ length: n }, (_, i) => `a${i}="v${i}"`).join(" ") + "/>";
+
+  // 254 extras + id = 255 attributes is the widest the engine reads back.
+  it.each([0, 10, 253, 254])("reads every attribute exactly at %i extras", async (n) => {
+    const attrs = (await parse(wide(n))).root()!.attributes()!;
+    expect(attrs).toHaveLength(n + 1);
+    expect(attrs.map((a) => [a.name, a.value])).toEqual([
+      ["id", "1"],
+      ...Array.from({ length: n }, (_, i) => [`a${i}`, `v${i}`]),
+    ]);
+  });
+
+  it("namespace declarations count toward the limit", async () => {
+    const decls = (n: number) =>
+      Array.from({ length: n }, (_, i) => `xmlns:p${i}="u${i}"`).join(" ") + " ";
+    const attrs = (await parse(wide(249, decls(5)))).root()!.attributes()!;
+    expect(attrs).toHaveLength(250); // id + 249; the 5 declarations are not attributes
+    await expect(parse(wide(249, decls(6)))).rejects.toBeInstanceOf(AttributeLimitError);
+  });
+
+  it.each([255, 256, 257, 300, 1000, 50000])(
+    "refuses %i extras (id included in the count) with a typed error, and the engine keeps working",
+    async (n) => {
+      const err = await parse(wide(n)).then(
+        () => undefined,
+        (e: unknown) => e,
+      );
+      expect(err).toBeInstanceOf(AttributeLimitError);
+      expect(err).toMatchObject({ reason: "attribute_limit", count: n + 1, limit: MAX_ATTRIBUTES });
+      const after = (await parse(wide(3))).root()!.attributes()!;
+      expect(after.map((a) => a.value)).toEqual(["1", "v0", "v1", "v2"]);
+    },
+  );
+
+  it("refuses a wide child element, not only the root", async () => {
+    await expect(parse(`<top><ok a="1"/>${wide(300)}</top>`)).rejects.toBeInstanceOf(
+      AttributeLimitError,
+    );
+  });
+
+  it("the builder refuses the attribute past the limit and stays readable", async () => {
+    const doc = await createDocument();
+    const r = doc.setRoot(doc.createElement("r"));
+    for (let i = 0; i < MAX_ATTRIBUTES; i++) r.setAttribute(`a${i}`, `v${i}`);
+    r.setAttribute("a0", "again"); // replacing is not growth
+    expect(() => r.setAttribute("one-too-many", "x")).toThrow(AttributeLimitError);
+    expect(() => r.declareNamespace("p", "urn:p")).toThrow(AttributeLimitError);
+    expect(() => r.setAttributeNS("urn:p", "p:z", "x")).toThrow(AttributeLimitError);
+    const attrs = r.attributes()!;
+    expect(attrs).toHaveLength(MAX_ATTRIBUTES);
+    expect(attrs[0]).toMatchObject({ name: "a0", value: "again" });
+    expect(attrs.at(-1)).toMatchObject({ name: `a${MAX_ATTRIBUTES - 1}` });
+    expect((await parse(wide(2))).root()!.attributes()).toHaveLength(3);
+  });
+
+  it("the builder limit counts attributes a parsed element already has", async () => {
+    const doc = await parse(wide(253));
+    const r = doc.root()!;
+    r.setAttribute("x1", "1"); // 255th
+    expect(() => r.setAttribute("x2", "2")).toThrow(AttributeLimitError);
+    expect(r.attributes()).toHaveLength(255);
   });
 });

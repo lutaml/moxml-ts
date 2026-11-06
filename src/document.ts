@@ -10,6 +10,31 @@ import {
 import { engine } from "./engine.js";
 import { initModel, valid_lexical } from "./model.js";
 
+/** The most attributes one element may carry, namespace declarations
+ * included (the XPath `@*` route counts them; the snapshot does not, but
+ * one limit for both keeps the rule simple). leptris-wasm 1.6.x keeps
+ * the per-element attribute count in a byte: from 256 attributes on,
+ * attribute_pairs / XPath `@*` report the count modulo 256 (256 reads
+ * back as none, 301 as 45) or trap,
+ * and a trap corrupts the wasm heap for the rest of the process. Input
+ * and builder calls past the limit are refused before the native call. */
+export const MAX_ATTRIBUTES = 255;
+
+/** A document or builder call asked for more attributes on one element
+ * than the engine can read back faithfully. `reason` is stable. */
+export class AttributeLimitError extends Error {
+  readonly reason = "attribute_limit";
+  constructor(
+    readonly count: number,
+    readonly limit: number = MAX_ATTRIBUTES,
+  ) {
+    super(
+      `element has ${count >= 0 ? `${count} attributes` : "too many attributes"}; the limit is ${limit} (namespace declarations included)`,
+    );
+    this.name = "AttributeLimitError";
+  }
+}
+
 /** A namespace binding in scope on an element. `prefix` is "" for the
  * default namespace. */
 export interface NamespaceBinding {
@@ -258,6 +283,7 @@ export class Node {
    * default namespace when `prefix` is "". */
   declareNamespace(prefix: string, uri: string): void {
     if (prefix !== "") checkQName("namespace prefix", prefix);
+    this.guardWidth(prefix === "" ? "xmlns" : `xmlns:${prefix}`);
     this.owner.invalidateTraps();
     this.native.set_attribute(prefix === "" ? "xmlns" : `xmlns:${prefix}`, uri);
   }
@@ -277,8 +303,28 @@ export class Node {
       const bound = this.inScopeNamespaces()?.find((b) => b.prefix === prefix);
       if (bound?.uri !== uri) this.declareNamespace(prefix, uri);
     }
+    this.guardWidth(qname);
     this.owner.invalidateTraps();
     this.native.set_attribute(qname, value);
+  }
+
+  /** Refuse an attribute name that would take this element past
+   * MAX_ATTRIBUTES. The names are tracked on the document, seeded from
+   * the element's own attributes the first time it is written to. */
+  private guardWidth(name: string): void {
+    const names = this.owner.attributeNames(this.native.ptr(), () => {
+      try {
+        return [
+          ...(this.attributes() ?? []).map((attribute) => attribute.name),
+          ...(this.declaredNamespaces() ?? []).map((b) => (b.prefix === "" ? "xmlns" : `xmlns:${b.prefix}`)),
+        ];
+      } catch {
+        return [];
+      }
+    });
+    if (names.has(name)) return;
+    if (names.size >= MAX_ATTRIBUTES) throw new AttributeLimitError(names.size + 1);
+    names.add(name);
   }
 
   /** Element name (element-kind nodes only), or undefined. */
@@ -313,6 +359,7 @@ export class Node {
    * QName (so `xmlns`, `xmlns:p` and `p:a` are accepted). */
   setAttribute(name: string, value: string): void {
     checkQName("attribute", name);
+    this.guardWidth(name);
     this.owner.invalidateTraps();
     this.native.set_attribute(name, value);
   }
@@ -379,6 +426,19 @@ export class Document {
   snapshotTrapped = false;
 
   private trapPtrs: Set<number> | undefined;
+
+  private readonly written = new Map<number, Set<string>>();
+
+  /** The attribute names known on the element at `ptr`; `seed` supplies
+   * them the first time the element is written to. */
+  attributeNames(ptr: number, seed: () => string[]): Set<string> {
+    let names = this.written.get(ptr);
+    if (names === undefined) {
+      names = this.fresh.has(ptr) ? new Set() : new Set(seed());
+      this.written.set(ptr, names);
+    }
+    return names;
+  }
 
   /** Bumped by every tree change that can move an existing node; Node
    * path caches are valid only for the epoch they were taken in. */
@@ -515,27 +575,36 @@ export class Document {
 export async function parse(xml: string): Promise<Document> {
   await engine();
   await initModel();
-  return new Document(new WasmDocument(xml), sourceMayTrapSnapshot(xml));
+  const scan = scanSource(xml);
+  if (scan.widest > MAX_ATTRIBUTES) throw new AttributeLimitError(scan.widest);
+  return new Document(new WasmDocument(xml), scan.mayTrap);
 }
 
 const TAG = /<[^\s/>!?]+((?:\s+[^\s=/>]+\s*=\s*(?:"[^"]*"|'[^']*'))*)\s*\/?>/g;
 const ATTR = /([^\s=]+)\s*=\s*(?:"[^"]*"|'[^']*')/g;
 
-/** Whether the source has a tag with a prefixed attribute followed by
- * an unprefixed one (declarations aside): the only shape that traps the
- * engine's attribute snapshot. A scan that over-reports is safe; it
- * only costs the document-wide check in Document.trapProne. */
-function sourceMayTrapSnapshot(xml: string): boolean {
+/** One pass over the start tags: whether any has a prefixed attribute
+ * followed by an unprefixed one (declarations aside), the only shape
+ * that traps the engine's attribute snapshot, and the most attributes
+ * (declarations included) on a single tag. A scan that over-reports the
+ * shape is safe; it only costs the document-wide check in
+ * Document.trapProne. */
+function scanSource(xml: string): { mayTrap: boolean; widest: number } {
+  let mayTrap = false;
+  let widest = 0;
   for (const tag of xml.matchAll(TAG)) {
     let prefixedSeen = false;
+    let count = 0;
     for (const attr of (tag[1] ?? "").matchAll(ATTR)) {
       const name = attr[1] ?? "";
+      count += 1;
       if (name === "xmlns" || name.startsWith("xmlns:")) continue;
       if (name.includes(":")) prefixedSeen = true;
-      else if (prefixedSeen) return true;
+      else if (prefixedSeen) mayTrap = true;
     }
+    if (count > widest) widest = count;
   }
-  return false;
+  return { mayTrap, widest };
 }
 
 /** An empty document to build into: the placeholder root is
