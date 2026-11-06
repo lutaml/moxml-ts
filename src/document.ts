@@ -163,16 +163,20 @@ export class Node {
    * Undefined for a non-element. */
   attributes(): Attribute[] | undefined {
     if (this.native.kind() !== ELEMENT_KIND) return undefined;
-    if (this.owner.snapshotTrapped) return this.attributesViaXPath();
+    // leptris-wasm (1.6.2 through 1.6.5) traps in the attribute
+    // snapshot (wasm `unreachable`) when a no-namespace attribute
+    // follows a namespaced one, and every trap corrupts the wasm heap
+    // (memory access out of bounds after ~3,600). A caught trap is not
+    // a safe fallback, so the snapshot is never called for an element
+    // that could trigger it: an element with a prefixed attribute
+    // followed by an unprefixed one (found once per document by
+    // Document.trapProne) is read through positional XPath instead.
+    if (this.mayTrapSnapshot()) return this.attributesViaXPath();
     let pairs: WasmAttribute[];
     try {
       pairs = this.native.attribute_pairs();
     } catch {
-      // leptris-wasm (1.6.2 through 1.6.5) traps in the attribute
-      // snapshot (wasm `unreachable`) when a no-namespace attribute
-      // follows a namespaced one. Repeated traps corrupt the wasm
-      // heap (memory access out of bounds after ~3,600), so the first
-      // trap switches this document to the positional-XPath read.
+      // Backstop for any other trap shape: stay on XPath for the document.
       this.owner.snapshotTrapped = true;
       return this.attributesViaXPath();
     }
@@ -185,6 +189,10 @@ export class Node {
       out.push({ name, prefix, localName, namespaceUri, value: pair.value });
     }
     return out;
+  }
+
+  private mayTrapSnapshot(): boolean {
+    return this.owner.snapshotTrapped || this.owner.trapProne().has(this.native.ptr());
   }
 
   private attributesViaXPath(): Attribute[] | undefined {
@@ -234,6 +242,7 @@ export class Node {
       const bound = this.inScopeNamespaces()?.find((b) => b.prefix === prefix);
       if (bound?.uri !== uri) this.declareNamespace(prefix, uri);
     }
+    this.owner.invalidateTraps();
     this.native.set_attribute(qname, value);
   }
 
@@ -269,12 +278,14 @@ export class Node {
    * QName (so `xmlns`, `xmlns:p` and `p:a` are accepted). */
   setAttribute(name: string, value: string): void {
     checkQName("attribute", name);
+    this.owner.invalidateTraps();
     this.native.set_attribute(name, value);
   }
 
   /** Append an owned node (same-document); returns the installed
    * handle. */
   addChild(child: Node): Node {
+    this.owner.invalidateTraps();
     return new Node(this.native.add_child(child.native), this.owner);
   }
 
@@ -328,7 +339,38 @@ export class Document {
    * document; see Node.attributes(). */
   snapshotTrapped = false;
 
-  constructor(private readonly native: WasmDocument) {}
+  private trapPtrs: Set<number> | undefined;
+
+  /** Pointers of the attached elements whose attributes put a prefixed
+   * one before an unprefixed one (the shape that traps the engine's
+   * snapshot). One document-wide query, cached until the tree or an
+   * attribute changes. A node absent from the set is either safe or
+   * detached; detached nodes keep the guarded snapshot call. */
+  trapProne(): Set<number> {
+    if (this.trapPtrs === undefined && !this.mayTrap) this.trapPtrs = new Set();
+    if (this.trapPtrs === undefined) {
+      const prefixed = "contains(name(),':')";
+      const shapes: string[] = [];
+      for (let i = 1; i <= 2; i++) {
+        shapes.push(`(@*[${i}][${prefixed}] and @*[position()>${i}][not(${prefixed})])`);
+      }
+      // Wider elements are flagged conservatively (slow but exact read).
+      shapes.push(`(@*[3] and @*[${prefixed}])`);
+      const result = this.native.xpath_full(`//*[${shapes.join(" or ")}]`);
+      this.trapPtrs = new Set(result.nodes().map((node) => node.ptr()));
+    }
+    return this.trapPtrs;
+  }
+
+  invalidateTraps(): void {
+    this.mayTrap = true;
+    this.trapPtrs = undefined;
+  }
+
+  constructor(
+    private readonly native: WasmDocument,
+    private mayTrap = true,
+  ) {}
 
   /** Root element name, or undefined for an empty document. */
   rootName(): string | undefined {
@@ -370,6 +412,7 @@ export class Document {
    * consumes the handle passed in; the installed root is returned and
    * is the one to keep using. */
   setRoot(root: Node): Node {
+    this.invalidateTraps();
     this.native.set_root(root.internal());
     return this.root()!;
   }
@@ -408,7 +451,27 @@ export class Document {
 export async function parse(xml: string): Promise<Document> {
   await engine();
   await initModel();
-  return new Document(new WasmDocument(xml));
+  return new Document(new WasmDocument(xml), sourceMayTrapSnapshot(xml));
+}
+
+const TAG = /<[^\s/>!?]+((?:\s+[^\s=/>]+\s*=\s*(?:"[^"]*"|'[^']*'))*)\s*\/?>/g;
+const ATTR = /([^\s=]+)\s*=\s*(?:"[^"]*"|'[^']*')/g;
+
+/** Whether the source has a tag with a prefixed attribute followed by
+ * an unprefixed one (declarations aside): the only shape that traps the
+ * engine's attribute snapshot. A scan that over-reports is safe; it
+ * only costs the document-wide check in Document.trapProne. */
+function sourceMayTrapSnapshot(xml: string): boolean {
+  for (const tag of xml.matchAll(TAG)) {
+    let prefixedSeen = false;
+    for (const attr of (tag[1] ?? "").matchAll(ATTR)) {
+      const name = attr[1] ?? "";
+      if (name === "xmlns" || name.startsWith("xmlns:")) continue;
+      if (name.includes(":")) prefixedSeen = true;
+      else if (prefixedSeen) return true;
+    }
+  }
+  return false;
 }
 
 /** An empty document to build into: the placeholder root is
