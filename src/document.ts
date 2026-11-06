@@ -54,6 +54,7 @@ export type NativeDocument = WasmDocument;
 
 export class Node {
   private cachedPath: string | undefined;
+  private pathEpoch: number;
 
   constructor(
     private readonly native: NativeNode,
@@ -61,16 +62,22 @@ export class Node {
     pathHint?: string,
   ) {
     this.cachedPath = pathHint;
+    this.pathEpoch = owner.epoch;
   }
 
   /** Absolute positional XPath of this element in its document, or
    * undefined for a non-element or a node not attached to the tree.
    * The engine's XPath only runs from the document root, so
    * node-relative questions (namespaces, attributes) are asked
-   * through this path. Appending never shifts earlier siblings, so
-   * the path stays valid. */
+   * through this path. Appending a fresh node never shifts earlier
+   * siblings; any other tree change (moving an attached node, replacing
+   * the root) bumps the document epoch and drops every cached path. */
   private path(): string | undefined {
     if (this.native.kind() !== ELEMENT_KIND) return undefined;
+    if (this.pathEpoch !== this.owner.epoch) {
+      this.cachedPath = undefined;
+      this.pathEpoch = this.owner.epoch;
+    }
     if (this.cachedPath !== undefined) return this.cachedPath;
     const root = this.owner.root();
     if (root === undefined) return undefined;
@@ -168,17 +175,31 @@ export class Node {
     // follows a namespaced one, and every trap corrupts the wasm heap
     // (memory access out of bounds after ~3,600). A caught trap is not
     // a safe fallback, so the snapshot is never called for an element
-    // that could trigger it: an element with a prefixed attribute
-    // followed by an unprefixed one (found once per document by
-    // Document.trapProne) is read through positional XPath instead.
-    if (this.mayTrapSnapshot()) return this.attributesViaXPath();
+    // that could trigger it. A never-mutated parse whose source has no
+    // such tag is safe throughout. Otherwise the element must be
+    // attached (only then can the shape be asked of the tree): an
+    // element with a prefixed attribute followed by an unprefixed one
+    // (found once per document by Document.trapProne) is read through
+    // positional XPath instead; a detached element cannot be vetted and
+    // is refused rather than risk the trap.
+    if (this.owner.mutatedOrSuspect()) {
+      const path = this.path();
+      if (path === undefined) {
+        throw new Error(
+          "attributes() of a detached element is unavailable: attach the element to the document first",
+        );
+      }
+      if (this.mayTrapSnapshot()) return this.attributesViaXPath(path);
+    }
     let pairs: WasmAttribute[];
     try {
       pairs = this.native.attribute_pairs();
     } catch {
       // Backstop for any other trap shape: stay on XPath for the document.
       this.owner.snapshotTrapped = true;
-      return this.attributesViaXPath();
+      const path = this.path();
+      if (path === undefined) throw new Error("attributes() of a detached element is unavailable");
+      return this.attributesViaXPath(path);
     }
     const out: Attribute[] = [];
     for (const pair of pairs) {
@@ -195,24 +216,37 @@ export class Node {
     return this.owner.snapshotTrapped || this.owner.trapProne().has(this.native.ptr());
   }
 
-  private attributesViaXPath(): Attribute[] | undefined {
-    const path = this.path();
-    if (path === undefined) return undefined;
+  private attributesViaXPath(path: string): Attribute[] {
     const count = this.owner.xpathCount(`${path}/@*`);
     const out: Attribute[] = [];
     for (let i = 1; i <= count; i++) {
       const step = `${path}/@*[${i}]`;
       const name = this.xp(`name(${step})`);
+      // Same contract as the snapshot path: declarations are not attributes.
+      if (name === "xmlns" || name.startsWith("xmlns:")) continue;
       const { prefix, localName } = splitQName(name);
       const namespaceUri =
-        prefix === ""
-          ? ""
-          : prefix === "xml"
-            ? XML_NS
-            : this.xp(`string(${path}/namespace::${prefix})`);
+        prefix === "" ? "" : prefix === "xml" ? XML_NS : this.resolvePrefix(path, prefix);
       out.push({ name, prefix, localName, namespaceUri, value: this.xp(`string(${step})`) });
     }
     return out;
+  }
+
+  /** The URI a prefix is bound to at `path`: the namespace axis, else
+   * the nearest `xmlns:prefix` declaration on the element or an ancestor
+   * (the axis does not report declarations set through the builder). */
+  private resolvePrefix(path: string, prefix: string): string {
+    const viaAxis = this.xp(`string(${path}/namespace::${prefix})`);
+    if (viaAxis !== "") return viaAxis;
+    const declaration = `xmlns:${prefix}`;
+    for (let at: string = path; at !== ""; at = at.slice(0, at.lastIndexOf("/"))) {
+      const count = this.owner.xpathCount(`${at}/@*`);
+      for (let i = 1; i <= count; i++) {
+        const step = `${at}/@*[${i}]`;
+        if (this.xp(`name(${step})`) === declaration) return this.xp(`string(${step})`);
+      }
+    }
+    return "";
   }
 
   /** The value of an attribute by qualified name, or undefined. */
@@ -224,6 +258,7 @@ export class Node {
    * default namespace when `prefix` is "". */
   declareNamespace(prefix: string, uri: string): void {
     if (prefix !== "") checkQName("namespace prefix", prefix);
+    this.owner.invalidateTraps();
     this.native.set_attribute(prefix === "" ? "xmlns" : `xmlns:${prefix}`, uri);
   }
 
@@ -268,8 +303,8 @@ export class Node {
     return this.native.children().map((child) => {
       if (child.kind() !== ELEMENT_KIND) return new Node(child, this.owner);
       position += 1;
-      const hint =
-        this.cachedPath === undefined ? undefined : `${this.cachedPath}/*[${position}]`;
+      const parentPath = this.path();
+      const hint = parentPath === undefined ? undefined : `${parentPath}/*[${position}]`;
       return new Node(child, this.owner, hint);
     });
   }
@@ -286,6 +321,10 @@ export class Node {
    * handle. */
   addChild(child: Node): Node {
     this.owner.invalidateTraps();
+    // A node the document did not just create is already placed in the
+    // tree (or under a holder): adding it moves it, which shifts the
+    // positional paths of its old and new siblings.
+    this.owner.noteAdopted(child.native.ptr());
     return new Node(this.native.add_child(child.native), this.owner);
   }
 
@@ -341,6 +380,25 @@ export class Document {
 
   private trapPtrs: Set<number> | undefined;
 
+  /** Bumped by every tree change that can move an existing node; Node
+   * path caches are valid only for the epoch they were taken in. */
+  epoch = 0;
+
+  /** Pointers of nodes created here and not yet added to a parent. */
+  private readonly fresh = new Set<number>();
+
+  /** Whether any native attribute read could trap: the document was
+   * mutated, or its source has a trap-shaped tag. */
+  mutatedOrSuspect(): boolean {
+    return this.mayTrap;
+  }
+
+  /** Record that `ptr` is being added under a parent: a fresh node is a
+   * plain append; any other is a move and drops cached paths. */
+  noteAdopted(ptr: number): void {
+    if (!this.fresh.delete(ptr)) this.epoch += 1;
+  }
+
   /** Pointers of the attached elements whose attributes put a prefixed
    * one before an unprefixed one (the shape that traps the engine's
    * snapshot). One document-wide query, cached until the tree or an
@@ -387,7 +445,9 @@ export class Document {
    * be a valid QName; the engine itself accepts any string. */
   createElement(name: string): Node {
     checkQName("element", name);
-    return new Node(this.native.create_element(name), this);
+    const node = this.native.create_element(name);
+    this.fresh.add(node.ptr());
+    return new Node(node, this);
   }
 
   /** Create a detached element in a namespace: the element carries
@@ -405,7 +465,9 @@ export class Document {
 
   /** Create a detached text node owned by this document. */
   createText(text: string): Node {
-    return new Node(this.native.create_text(text), this);
+    const node = this.native.create_text(text);
+    this.fresh.add(node.ptr());
+    return new Node(node, this);
   }
 
   /** Attach a detached element as the document's root. The engine
@@ -413,6 +475,8 @@ export class Document {
    * is the one to keep using. */
   setRoot(root: Node): Node {
     this.invalidateTraps();
+    this.fresh.delete(root.internal().ptr());
+    this.epoch += 1;
     this.native.set_root(root.internal());
     return this.root()!;
   }
