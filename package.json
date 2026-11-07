@@ -1,5 +1,5 @@
 {
-  "name": "moxml-ts",
+  "name": "moxml",
   "version": "0.1.0",
   "description": "The moxml XML processing model - TypeScript binding over moxml-rs + leptris-wasm",
   "type": "module",

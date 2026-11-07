@@ -1,4 +1,4 @@
-# moxml-ts
+# moxml
 
 The moxml XML processing model — TypeScript implementation.
 
