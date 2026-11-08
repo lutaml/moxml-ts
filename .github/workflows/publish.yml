@@ -1,0 +1,32 @@
+name: publish
+
+# npm trusted publishing (OIDC — no token). Requires the package to
+# exist on npmjs with the trusted-publisher binding to this repo +
+# workflow configured (npmjs.com package settings); the FIRST
+# publish is manual (npm publish from a checkout) to establish it,
+# after which this workflow publishes on every GitHub release.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: npm
+      - run: npm install
+      - run: npm run build
+      - run: npm test
+      # OIDC provenance: npm >= 11.5.1 attests through the id-token
+      # permission — no _authToken in the environment.
+      - run: npm publish
