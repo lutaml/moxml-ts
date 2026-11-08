@@ -28,6 +28,9 @@ jobs:
       # The wasm vendor bundles are gitignored and fetched at the pin
       # releases - the build imports them, so they must exist first.
       - run: npm run fetch:wasm
+        env:
+          # fetch-wasm.sh pulls the pinned bundles through gh api.
+          GH_TOKEN: ${{ github.token }}
       - run: npm run build
       - run: npm test
       # OIDC provenance: npm >= 11.5.1 attests through the id-token
