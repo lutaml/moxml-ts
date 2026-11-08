@@ -28,6 +28,10 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
           cache: npm
+      # Trusted publishing needs npm >= 11.5.1 (the OIDC exchange);
+      # node 22 bundles npm 10.x, which never sends the claim and the
+      # registry answers an unauthenticated PUT with E404.
+      - run: npm install -g npm@latest
       - run: npm install
       # The wasm vendor bundles are gitignored and fetched at the pin
       # releases - the build imports them, so they must exist first.
