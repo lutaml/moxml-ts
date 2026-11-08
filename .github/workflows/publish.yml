@@ -25,6 +25,9 @@ jobs:
           registry-url: https://registry.npmjs.org
           cache: npm
       - run: npm install
+      # The wasm vendor bundles are gitignored and fetched at the pin
+      # releases - the build imports them, so they must exist first.
+      - run: npm run fetch:wasm
       - run: npm run build
       - run: npm test
       # OIDC provenance: npm >= 11.5.1 attests through the id-token
