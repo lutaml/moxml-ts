@@ -1,5 +1,5 @@
 {
-  "name": "moxml",
+  "name": "@lutaml/moxml",
   "version": "0.1.0",
   "description": "The moxml XML processing model - TypeScript binding over moxml-rs + leptris-wasm",
   "type": "module",
@@ -44,5 +44,8 @@
     "playwright": "^1.64.1",
     "typescript": "^5.6.0",
     "vitest": "^2.1.0"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
