@@ -140,17 +140,17 @@ describe("namespace-aware builder", () => {
 
 // UPSTREAM: not fixable over the shipped wasm. Each test pins today's
 // behaviour so the day the export lands it goes red and gets replaced.
-describe("UPSTREAM gaps (leptris-wasm / moxml-wasm exports missing)", () => {
-  it("has no comment, CDATA or PI constructors (needs WasmDocument.create_comment / create_cdata / create_pi)", async () => {
+describe("UPSTREAM gaps — CLOSED at leptris-v1.6.16 (the tier-2 faces shipped)", () => {
+  it("has comment, CDATA and PI constructors (shipped since 1.6.16)", async () => {
     const doc = await createDocument();
     for (const name of ["create_comment", "create_cdata", "create_pi"]) {
-      expect((doc.internal() as unknown as Record<string, unknown>)[name]).toBeUndefined();
+      expect(typeof (doc.internal() as unknown as Record<string, unknown>)[name]).toBe("function");
     }
   });
 
-  it("has no attribute removal (needs WasmNode.remove_attribute)", async () => {
+  it("has attribute removal (shipped since 1.6.16)", async () => {
     const root = (await parse('<r a="1"/>')).root()!;
-    expect((root.internal() as unknown as Record<string, unknown>)["remove_attribute"]).toBeUndefined();
+    expect(typeof (root.internal() as unknown as Record<string, unknown>)["remove_attribute"]).toBe("function");
   });
 
   it("has no parse options: an entity bomb expands fully (needs a max-entity-expansion option on WasmDocument parse)", async () => {
@@ -160,9 +160,9 @@ describe("UPSTREAM gaps (leptris-wasm / moxml-wasm exports missing)", () => {
     expect(doc.xpath("string-length(/r)")).toBe("1000000");
   });
 
-  it("reports no position for malformed input (needs line/column on the parse error)", async () => {
+  it("reports line/column for malformed input (shipped since 1.6.16)", async () => {
     const error = await parse("<r>\n<c>\n</r>").catch((e: Error) => e);
-    expect(String(error)).not.toMatch(/line|column|\b3\b/i);
+    expect(String(error)).toMatch(/line|column/i);
   });
 });
 
