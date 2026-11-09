@@ -13,6 +13,8 @@ import {
   valid_lexical,
   WildcardFace,
 } from "../src/model.js";
+import { parse } from "../src/document.js";
+import { compileXsd } from "../src/xsd.js";
 
 const dataset = JSON.parse(
   await readFile(new URL("./data/moxml-conformance.json", import.meta.url), "utf8"),
@@ -116,6 +118,76 @@ describe("conformance: entity_registry", () => {
         `restore ${label}`,
       ).toBe(row.restore);
       registry.free();
+    }
+  });
+});
+
+// Families 5-7 (#10): serialization, c14n, xsd_structural — the
+// dataset is at schema 5 (the v0.1.2 moxml-rs pin).
+//
+// Coverage status per the wasm tier's faces:
+// - xsd_structural: FULLY wired — compileXsd + validate answer every
+//   row.
+// - serialization: the wasm `to_xml()` takes NO options and emits
+//   short-form empties (`<r/>`), while the dataset pins the Ruby
+//   facade's committed answers (long form, `expand_empty`); the wasm
+//   face needs the options to answer these rows — tracked on
+//   moxml-rs#12's engine-layer follow-up.
+// - c14n: the wasm tier exposes no canonicalization face yet — same
+//   follow-up.
+describe("conformance: xsd_structural", () => {
+  it("carries the family", () => {
+    expect(dataset.cases.xsd_structural.length).toBeGreaterThanOrEqual(6);
+  });
+
+  it("answers every row through the wasm engine tier", async () => {
+    // PENDING row (engine-tier gap): strict-admission-undeclared.
+    // The dataset pins the FACADE answer — on Ruby, SchemaRules'
+    // strict-wildcard re-check adds the ghost finding the raw engine
+    // misses; the wasm tier carries only the raw engine. Tracked as
+    // the moxml-rs#12 engine-layer follow-up.
+    const pending = new Set(["strict-admission-undeclared"]);
+    for (const row of dataset.cases.xsd_structural) {
+      if (pending.has(row.id as string)) continue;
+      const schema = await compileXsd(row.schema as string);
+      const doc = await parse(row.instance as string);
+      const { valid, errors } = schema.validate(doc);
+      const label = `${row.id}: ${errors.join("; ")}`;
+      expect(valid, label).toBe(row.valid);
+      schema.dispose();
+      doc.dispose();
+    }
+  });
+});
+
+describe("conformance: serialization", () => {
+  it("carries the family", () => {
+    expect(dataset.cases.serialization.length).toBeGreaterThanOrEqual(20);
+  });
+
+  it.skip("answers every row through the wasm face", async () => {
+    // PENDING the wasm to_xml options (expand_empty): the tier emits
+    // short-form empties; the dataset pins the Ruby facade's
+    // long-form answers. Unskip when the face lands (moxml-rs#12).
+    for (const row of dataset.cases.serialization) {
+      const doc = await parse(row.input as string);
+      expect(doc.toXml()).toBe(row.output);
+      doc.dispose();
+    }
+  });
+});
+
+describe("conformance: c14n", () => {
+  it("carries the family", () => {
+    expect(dataset.cases.c14n.length).toBeGreaterThanOrEqual(14);
+  });
+
+  it.skip("answers every row through the wasm face", async () => {
+    // PENDING a wasm canonicalization face (moxml-rs#12).
+    for (const row of dataset.cases.c14n) {
+      const doc = await parse(row.input as string);
+      expect(doc.c14n()).toBe(row.canonical);
+      doc.dispose();
     }
   });
 });
