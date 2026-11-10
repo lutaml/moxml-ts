@@ -13,6 +13,7 @@ import {
   valid_lexical,
   WildcardFace,
 } from "../src/model.js";
+import { c14nCanonicalize } from "../src/engine.js";
 import { parse } from "../src/document.js";
 import { compileXsd } from "../src/xsd.js";
 import { strict_admission_findings } from "../src/model.js";
@@ -186,12 +187,16 @@ describe("conformance: c14n", () => {
     expect(dataset.cases.c14n.length).toBeGreaterThanOrEqual(14);
   });
 
-  it.skip("answers every row through the wasm face", async () => {
-    // PENDING a wasm canonicalization face (moxml-rs#12).
+  it.skip("answers every row through the engine c14n face", async () => {
+    // PENDING (wasm32 engine gap): the c14n face exists in the
+    // bundle (leptris-v1.6.18) and works natively (the local Rust
+    // probe matches the dataset bytes row-for-row), but returns an
+    // empty string in the wasm32 freestanding build. Tracked on
+    // moxml-rs#12.
     for (const row of dataset.cases.c14n) {
-      const doc = await parse(row.input as string);
-      expect(doc.c14n()).toBe(row.canonical);
-      doc.dispose();
+      expect(await c14nCanonicalize(row.input as string)).toBe(
+        row.canonical,
+      );
     }
   });
 });

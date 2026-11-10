@@ -3,11 +3,21 @@
 // scripts/fetch-wasm.sh (.pin records the leptris-rs release); Node
 // reads the file, browsers let the bundler resolve the URL.
 import {
+  c14n_canonicalize as wasmC14nCanonicalize,
   default as wasmInit,
   initSync,
   type InitInput,
   type InitOutput,
 } from "../vendor/leptris-wasm/leptris.js";
+
+/** Canonicalize (C14N 1.0, comments stripped): the engine's
+ * canonical form — sorted attributes, long-form empties, expanded
+ * references — the shape the conformance dataset's c14n family
+ * pins. */
+export async function c14nCanonicalize(xml: string): Promise<string> {
+  await engine();
+  return wasmC14nCanonicalize(xml, false);
+}
 
 let initPromise: Promise<InitOutput> | null = null;
 
