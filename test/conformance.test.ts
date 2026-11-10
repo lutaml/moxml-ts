@@ -15,6 +15,7 @@ import {
 } from "../src/model.js";
 import { parse } from "../src/document.js";
 import { compileXsd } from "../src/xsd.js";
+import { strict_admission_findings } from "../src/model.js";
 
 const dataset = JSON.parse(
   await readFile(new URL("./data/moxml-conformance.json", import.meta.url), "utf8"),
@@ -140,20 +141,23 @@ describe("conformance: xsd_structural", () => {
     expect(dataset.cases.xsd_structural.length).toBeGreaterThanOrEqual(6);
   });
 
-  it("answers every row through the wasm engine tier", async () => {
-    // PENDING row (engine-tier gap): strict-admission-undeclared.
-    // The dataset pins the FACADE answer — on Ruby, SchemaRules'
-    // strict-wildcard re-check adds the ghost finding the raw engine
-    // misses; the wasm tier carries only the raw engine. Tracked as
-    // the moxml-rs#12 engine-layer follow-up.
-    const pending = new Set(["strict-admission-undeclared"]);
+  it("answers every row through the wasm engine tier + the strict admission face", async () => {
+    // The facade answer = the raw engine verdict AND the strict
+    // wildcard admission re-check (the model owns the committed
+    // answer on every tier — moxml-rs#17, shipped at the v0.1.3 pin
+    // as strict_admission_findings). The re-check closes the
+    // strict-admission-undeclared gap the raw engine has.
     for (const row of dataset.cases.xsd_structural) {
-      if (pending.has(row.id as string)) continue;
       const schema = await compileXsd(row.schema as string);
       const doc = await parse(row.instance as string);
       const { valid, errors } = schema.validate(doc);
-      const label = `${row.id}: ${errors.join("; ")}`;
-      expect(valid, label).toBe(row.valid);
+      const findings = strict_admission_findings(
+        row.schema as string,
+        row.instance as string,
+      );
+      const facadeValid = valid && findings.length === 0;
+      const label = `${row.id}: ${errors.join("; ")} ${findings.join(",")}`;
+      expect(facadeValid, label).toBe(row.valid);
       schema.dispose();
       doc.dispose();
     }
