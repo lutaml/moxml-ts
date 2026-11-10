@@ -6,6 +6,7 @@ import {
   default as modelInit,
   initSync as modelInitSync,
   lexical_names,
+  strict_admission_findings,
   translate_regex_js,
   valid_lexical,
   WildcardFace,
@@ -16,6 +17,7 @@ import {
 
 export {
   lexical_names,
+  strict_admission_findings,
   translate_regex_js,
   valid_lexical,
   WildcardFace,
