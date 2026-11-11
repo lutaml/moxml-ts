@@ -6,6 +6,7 @@ import {
   c14n_canonicalize as wasmC14nCanonicalize,
   default as wasmInit,
   initSync,
+  serialize_with_options as wasmSerializeWithOptions,
   type InitInput,
   type InitOutput,
 } from "../vendor/leptris-wasm/leptris.js";
@@ -17,6 +18,18 @@ import {
 export async function c14nCanonicalize(xml: string): Promise<string> {
   await engine();
   return wasmC14nCanonicalize(xml, false);
+}
+
+/** Serialize with emitter options (indent, expand_empty): the
+ * long-form-empty posture the conformance dataset's serialization
+ * family pins. */
+export async function serializeWithOptions(
+  xml: string,
+  indent: number,
+  expandEmpty: boolean,
+): Promise<string> {
+  await engine();
+  return wasmSerializeWithOptions(xml, indent, expandEmpty);
 }
 
 let initPromise: Promise<InitOutput> | null = null;
