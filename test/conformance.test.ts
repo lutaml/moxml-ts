@@ -127,14 +127,13 @@ describe("conformance: entity_registry", () => {
 // Families 5-7 (#10): serialization, c14n, xsd_structural — the
 // dataset is at schema 5 (the v0.1.3 moxml-rs pin).
 //
-// Coverage status per the wasm tier's faces:
-// - xsd_structural: FULLY wired — compileXsd + validate + the
-//   strict-admission face answer every row.
-// - serialization: 19/20 wired through serialize_with_options
-//   (leptris-v1.6.18). `attr-newline` pends the engine §3.3.3
-//   charref-in-attribute bug — see the block comment below.
-// - c14n: the face is bound but the wasm32 build returns mangled
-//   bytes (native is byte-correct) — pends on moxml-rs#12.
+// Coverage status: FULLY wired at the leptris-v1.6.19 pin — every
+// row of all three families answers through the wasm tier. The
+// leptris-v1.6.18 bundle diverged from native (its freestanding
+// shim's *printf returned 0, so the engine's `out += sprintf(...)`
+// emitters never advanced: attribute charrefs vanished on serialize
+// and c14n emitted mangled bytes); 1.6.19 carries the shim fix and
+// answers the dataset identically to native (leptris-rs#69).
 describe("conformance: xsd_structural", () => {
   it("carries the family", () => {
     expect(dataset.cases.xsd_structural.length).toBeGreaterThanOrEqual(6);
@@ -169,31 +168,15 @@ describe("conformance: serialization", () => {
   });
 
   it("answers every row through the wasm serialize face", async () => {
-    // 19/20 (leptris-v1.6.18): serialize_with_options(0, true)
-    // delivers the Ruby facade's committed answers — long-form
-    // empties, the escaping shapes, namespace declarations verbatim.
-    // `attr-newline` pends the engine bug where character references
-    // inside attribute values are dropped by the parse (XML
-    // Structures §3.3.3: a charref contributes the literal
-    // character, excluded from attr-value normalization;
-    // `a="x&#10;y"` serializes as `a="xy"`). Tracked on moxml-rs#12
-    // with the measured probe; unskip that row when the parse is
-    // fixed.
+    // serialize_with_options(0, true) delivers the Ruby facade's
+    // committed answers: long-form empties, the escaping shapes
+    // (attribute charrefs re-escape as numeric references per XML
+    // Structures §3.3.3), namespace declarations verbatim — every
+    // row, at the leptris-v1.6.19 shim fix.
     for (const row of dataset.cases.serialization) {
-      if (row.id === "attr-newline") continue;
       const out = await serializeWithOptions(row.input as string, 0, true);
       expect(out, `row ${row.id}`).toBe(row.output);
     }
-  });
-
-  it("pends attr-newline on the engine charref bug (moxml-rs#12)", async () => {
-    // Pin the exact engine defect so the row cannot silently pass or
-    // silently vanish: today the charref is dropped; when leptris-rs
-    // fixes the parse, this expectation flips and the main loop
-    // above takes the row back.
-    const out = await serializeWithOptions('<r a="x&#10;y"/>', 0, true);
-    expect(out).not.toBe('<r a="x&#10;y"></r>');
-    expect(out).toBe("<r a=\"xy\"></r>");
   });
 });
 
@@ -202,15 +185,13 @@ describe("conformance: c14n", () => {
     expect(dataset.cases.c14n.length).toBeGreaterThanOrEqual(14);
   });
 
-  it.skip("answers every row through the engine c14n face", async () => {
-    // PENDING (wasm32 engine gap): the c14n face exists in the
-    // bundle (leptris-v1.6.18) and works natively (the local Rust
-    // probe matches the dataset bytes row-for-row), but the wasm32
-    // freestanding build returns MANGLED bytes — e.g. a trivial
-    // `<r a="1" b="2"><x>  t </x></r>` yields `">>  t "`, not the
-    // canonical form. Tracked on moxml-rs#12 with the probe.
+  it("answers every row byte-identically through the engine c14n face", async () => {
+    // The canonical form — sorted attributes, long-form empties,
+    // expanded references, comments dropped — byte-identical to the
+    // Ruby reference and the native build, at the leptris-v1.6.19
+    // shim fix (the v1.6.18 wasm32 build mangled these rows).
     for (const row of dataset.cases.c14n) {
-      expect(await c14nCanonicalize(row.input as string)).toBe(
+      expect(await c14nCanonicalize(row.input as string), `row ${row.id}`).toBe(
         row.canonical,
       );
     }
