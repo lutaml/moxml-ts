@@ -1,6 +1,6 @@
 {
   "name": "@lutaml/moxml",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "The moxml XML processing model - TypeScript binding over moxml-rs + leptris-wasm",
   "type": "module",
   "license": "MIT",
