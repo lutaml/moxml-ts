@@ -8,7 +8,7 @@
 set -euo pipefail
 
 LEPTRIS_RS_RELEASE="${LEPTRIS_RS_RELEASE:-leptris-v1.6.19}"
-MOXML_RS_RELEASE="${MOXML_RS_RELEASE:-v0.1.3}"
+MOXML_RS_RELEASE="${MOXML_RS_RELEASE:-v0.1.4}"
 
 here="$(cd "$(dirname "$0")/.." && pwd)"
 
