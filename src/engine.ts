@@ -6,9 +6,11 @@ import {
   c14n_canonicalize as wasmC14nCanonicalize,
   default as wasmInit,
   initSync,
+  parse_html as wasmParseHtml,
   serialize_with_options as wasmSerializeWithOptions,
   type InitInput,
   type InitOutput,
+  type WasmDocument as NativeDocument,
 } from "../vendor/leptris-wasm/leptris.js";
 
 /** Canonicalize (C14N 1.0, comments stripped): the engine's
@@ -54,6 +56,14 @@ async function startEngine(input?: InitInput): Promise<InitOutput> {
 export async function initEngine(input?: InitInput): Promise<void> {
   initPromise ??= startEngine(input);
   await initPromise;
+}
+
+/** The WHATWG HTML parse on the engine tier (the wasm face shipped
+ * with the tier-2 faces; leptris-rs#22's ask). One engine everywhere:
+ * HTML parses through leptris too, never a second parser. */
+export async function parseHtml(html: string): Promise<NativeDocument> {
+  await initEngine();
+  return wasmParseHtml(html);
 }
 
 export async function engine(): Promise<InitOutput> {

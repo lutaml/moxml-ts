@@ -20,7 +20,18 @@ const eq = (got, want, msg) => {
   if (g !== w) throw new Error(`${msg || "eq"}: got ${g}, want ${w}`);
 };
 
-const { initEngine, parse, createDocument, initModel, RegistryFace, valid_lexical, WildcardFace, parseToDOM } = await import("/dist/index.js");
+const { initEngine, parse, createDocument, initModel, RegistryFace, valid_lexical, WildcardFace, parseToDOM, parseHTMLToDOM } = await import("/dist/index.js");
+
+await run("dom bridge: parseHTMLToDOM on the native DOM", async () => {
+  await initEngine();
+  const dom = await parseHTMLToDOM("<body><p id=\"x\">hello</p><br><ul><li>1</li></ul></body>");
+  const ps = dom.getElementsByTagName("p");
+  assert(ps.length === 1, "p count");
+  assert(ps[0].getAttribute("id") === "x", "p attr");
+  assert(ps[0].textContent === "hello", "p text");
+  assert(dom.getElementsByTagName("li")[0].textContent === "1", "li");
+  assert(dom.getElementsByTagName("img").length === 0, "no img");
+});
 
 await run("dom bridge: parseToDOM lands on the native DOM", async () => {
   await initEngine();
