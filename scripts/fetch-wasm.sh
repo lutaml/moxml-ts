@@ -43,3 +43,12 @@ if [ ! -f "$dataset_pin" ] || [ "$(cat "$dataset_pin")" != "$MOXML_RS_RELEASE" ]
   printf '%s\n' "$MOXML_RS_RELEASE" > "$dataset_pin"
   echo "test/data/moxml-conformance.json fetched at $MOXML_RS_RELEASE"
 fi
+rows_pin="$here/test/data/.rows-pin"
+rows="$here/test/data/data-plane-rows.json"
+if [ ! -f "$rows_pin" ] || [ "$(cat "$rows_pin")" != "$MOXML_RS_RELEASE" ]; then
+  mkdir -p "$(dirname "$rows")"
+  gh api "repos/lutaml/moxml-rs/contents/tests/data/data-plane-rows.json?ref=$MOXML_RS_RELEASE" \
+    -H "Accept: application/vnd.github.raw" > "$rows"
+  printf '%s\n' "$MOXML_RS_RELEASE" > "$rows_pin"
+  echo "test/data/data-plane-rows.json fetched at $MOXML_RS_RELEASE"
+fi
