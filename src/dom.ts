@@ -105,14 +105,14 @@ export async function parseToDOM(xml: string): Promise<Document> {
   return toDOM(await parse(xml));
 }
 
-/** The HTML half of the bridge gates on the engine ask: the WHATWG
- * parse (leptris_parse_html_string) has no wasm exposure yet
- * (leptris/leptris-rs#22). Loud, never a silent fallback — the
- * architecture rejects admitting a second parser. */
-export async function parseHTMLToDOM(_html: string): Promise<Document> {
-  throw new Error(
-    "parseHTMLToDOM: the WHATWG HTML parse has no wasm exposure yet " +
-      "(leptris/leptris-rs#22); the HTML half of the bridge gates until " +
-      "the engine face lands",
-  );
+/** Parse HTML with leptris's WHATWG parser and hand back the
+ * platform DOM. One engine everywhere: HTML parses through leptris's
+ * own WHATWG parser (the wasm face, leptris-rs#22's tier-2 ask) —
+ * never a second parser (DOMParser stays rejected by the
+ * architecture). */
+export async function parseHTMLToDOM(html: string): Promise<Document> {
+  const { parseHtml } = await import("./engine.js");
+  const native = await parseHtml(html);
+  const doc = new (await import("./document.js")).Document(native);
+  return toDOM(doc);
 }

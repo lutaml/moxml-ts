@@ -86,10 +86,23 @@ describe("the bridge on the moxml Document", () => {
 });
 
 describe("parseHTMLToDOM", () => {
-  it("gates loudly on the engine ask (leptris-rs#22)", async () => {
-    await expect(parseHTMLToDOM("<p>hi")).rejects.toThrow(
-      /leptris\/leptris-rs#22/,
+  it("parses HTML through leptris's WHATWG parser onto the DOM", async () => {
+    const dom = await parseHTMLToDOM(
+      "<html><head><title>t</title></head><body><p id=\"x\">hello</p><br><p>second</p></body></html>",
     );
+    const ps = dom.getElementsByTagName("p");
+    expect(ps.length).toBe(2);
+    expect(ps[0]!.getAttribute("id")).toBe("x");
+    expect(ps[0]!.textContent).toBe("hello");
+    expect(dom.getElementsByTagName("title")[0]!.textContent).toBe("t");
+  });
+
+  it("carries void elements and structure", async () => {
+    const dom = await parseHTMLToDOM("<body><img src=\"a.png\"><div>text</div></body>");
+    const img = dom.getElementsByTagName("img");
+    expect(img.length).toBe(1);
+    expect(img[0]!.getAttribute("src")).toBe("a.png");
+    expect(dom.getElementsByTagName("div")[0]!.textContent).toBe("text");
   });
 });
 
