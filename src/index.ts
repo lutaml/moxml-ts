@@ -10,3 +10,4 @@ export * from "./engine.js";
 export * from "./document.js";
 export * from "./model.js";
 export * from "./xsd.js";
+export * from "./dom.js";

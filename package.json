@@ -47,5 +47,8 @@
   },
   "publishConfig": {
     "access": "public"
+  },
+  "dependencies": {
+    "@xmldom/xmldom": "^0.9.8"
   }
 }

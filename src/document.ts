@@ -7,6 +7,7 @@ import {
   type WasmXPathResult as NativeXPathResult,
 } from "../vendor/leptris-wasm/leptris.js";
 import { engine } from "./engine.js";
+import { toDOM } from "./dom.js";
 
 /** The native document handle the engine tier owns. */
 export type NativeDocument = WasmDocument;
@@ -33,6 +34,23 @@ export class Node {
   /** Children across every served kind, in document order. */
   children(): Node[] {
     return this.native.children().map((child) => new Node(child));
+  }
+
+  /** ALL attribute names and values in ONE crossing (the engine's
+   * batched snapshot): rows of {name, value}. Element-kind nodes
+   * only; other kinds answer an empty array. Namespace declarations
+   * are not attributes in the engine's model and do not appear here. */
+  attributePairs(): { name: string; value: string }[] {
+    return this.native.attribute_pairs().map((row) => ({
+      name: row.name,
+      value: row.value,
+    }));
+  }
+
+  /** The processing-instruction target (PI-kind nodes; undefined
+   * otherwise). The data rides text(). */
+  piTarget(): string | undefined {
+    return this.native.pi_target() ?? undefined;
   }
 
   /** Set an attribute (element-kind nodes). */
@@ -145,6 +163,11 @@ export class Document {
 
   dispose(): void {
     this.native.free();
+  }
+
+  /** The DOM bridge (moxml-ts#7): this document as the platform DOM. */
+  toDOM(): Promise<globalThis.Document> {
+    return toDOM(this);
   }
 }
 
