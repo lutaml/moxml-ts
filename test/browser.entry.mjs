@@ -20,7 +20,20 @@ const eq = (got, want, msg) => {
   if (g !== w) throw new Error(`${msg || "eq"}: got ${g}, want ${w}`);
 };
 
-const { initEngine, parse, createDocument, initModel, RegistryFace, valid_lexical, WildcardFace } = await import("/dist/index.js");
+const { initEngine, parse, createDocument, initModel, RegistryFace, valid_lexical, WildcardFace, parseToDOM } = await import("/dist/index.js");
+
+await run("dom bridge: parseToDOM lands on the native DOM", async () => {
+  await initEngine();
+  const dom = await parseToDOM('<r lang="en"><a x="1">t</a><b/></r>');
+  assert(dom.implementation !== undefined, "native document");
+  const root = dom.documentElement;
+  assert(root.tagName === "r", "root tag");
+  assert(root.getAttribute("lang") === "en", "attr");
+  assert(root.getElementsByTagName("a")[0].getAttribute("x") === "1", "child attr");
+  assert(root.getElementsByTagName("a")[0].textContent === "t", "text");
+  // The platform toolbox over the converted tree.
+  assert(dom.getElementsByTagName("b").length === 1, "getElementsByTagName");
+});
 
 await run("engine: init + parse + serialize", async () => {
   await initEngine();
