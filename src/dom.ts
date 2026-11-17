@@ -71,30 +71,74 @@ function convertChild(node: MoxmlNode, dom: BridgeImplementation, doc: Document)
   }
 }
 
-function convertChildren(node: MoxmlNode, dom: BridgeImplementation, domParent: Node, doc: Document): void {
-  for (const child of node.children()) {
-    const converted = convertChild(child, dom, doc);
-    if (converted === undefined) continue;
-    domParent.appendChild(converted);
-    if (child.kind() === NodeKind.Element) {
-      convertChildren(child, dom, converted, doc);
+function convertRow(
+  row: unknown[],
+  dom: BridgeImplementation,
+  doc: Document,
+  byId: Map<number, Node>,
+): Node | undefined {
+  const [id, kind, parent, nameOrTarget, text, pairs] = row as [
+    number,
+    number,
+    number | null,
+    string | null,
+    string | null,
+    string[] | null,
+  ];
+  switch (kind) {
+    case NodeKind.Element: {
+      const el = doc.createElement(nameOrTarget ?? "");
+      if (pairs) {
+        for (let i = 0; i < pairs.length; i += 2) {
+          el.setAttribute(pairs[i]!, pairs[i + 1]!);
+        }
+      }
+      byId.set(id, el);
+      return el;
     }
+    case NodeKind.Text:
+      return doc.createTextNode(text ?? "");
+    case NodeKind.Comment:
+      return doc.createComment(text ?? "");
+    case NodeKind.Cdata:
+      return doc.createCDATASection(text ?? "");
+    case NodeKind.Pi:
+      return doc.createProcessingInstruction(nameOrTarget ?? "", text ?? "");
+    default:
+      // Doctype and the other kinds ride the boundary: the converted
+      // tree is a sink, and DOM doctype attachment post-hoc is not a
+      // faithful conversion. Documented, never silent for elements.
+      return undefined;
   }
 }
 
-/** Convert a moxml document into the platform DOM: one recursive walk
- * of the engine-tier tree (children/kind/name/text + the batched
- * attribute snapshot), element children carrying their subtrees. */
+/** Convert a moxml document into the platform DOM from the ENGINE'S
+ * NODE TABLE — one crossing carries the whole tree (id/kind/parent/
+ * content per node); the platform tree assembles from the parent
+ * ids. The conversion walk is per-node crossings no more. */
 export async function toDOM(doc: MoxmlDocument): Promise<Document> {
   const impl = await platformImplementation();
   const dom = impl.createDocument(null, null);
-  const root = doc.root();
-  if (root === undefined) {
-    return dom;
+  const table = doc.nodeTable();
+  const byId = new Map<number, Node>();
+  let rootAttached = false;
+  for (const row of table) {
+    const converted = convertRow(row, impl, dom, byId);
+    const id = (row as unknown[])[0] as number;
+    const parentId = (row as unknown[])[2] as number | null;
+    if (converted === undefined) continue;
+    const parentEl = parentId === null ? undefined : (byId.get(parentId) as Element | undefined);
+    if (converted.nodeType === 1 && parentId === null && !rootAttached) {
+      // The root element: also the document element.
+      dom.appendChild(converted);
+      rootAttached = true;
+    } else if (parentEl) {
+      parentEl.appendChild(converted);
+    } else if (converted.nodeType === 1) {
+      dom.appendChild(converted);
+    }
+    byId.set(id, converted);
   }
-  const domRoot = elementFrom(root, impl, dom);
-  dom.appendChild(domRoot);
-  convertChildren(root, impl, domRoot, dom);
   return dom;
 }
 

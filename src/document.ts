@@ -165,6 +165,22 @@ export class Document {
     this.native.free();
   }
 
+  /** The batched element-rows read (the processing model's row
+   * contract, § The data plane): the whole tree in ONE crossing.
+   * Convergent with the reference tier's DocumentFace.element_rows —
+   * pinned by the data_plane_rows dataset. */
+  elementRows(): unknown[][] {
+    return this.native.element_rows();
+  }
+
+  /** The full node table: every served node in document order, ONE
+   * crossing — [id, kind, parent, name_or_null, text_or_null,
+   * attr_pairs] (the name column carries the PI target for PI
+   * nodes). The DOM bridge's conversion consumes this. */
+  nodeTable(): unknown[][] {
+    return this.native.node_table();
+  }
+
   /** The DOM bridge (moxml-ts#7): this document as the platform DOM. */
   toDOM(): Promise<globalThis.Document> {
     return toDOM(this);
