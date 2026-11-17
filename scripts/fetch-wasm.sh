@@ -7,7 +7,7 @@
 # The pins live here (one line each) so a train bump is a one-line diff.
 set -euo pipefail
 
-LEPTRIS_RS_RELEASE="${LEPTRIS_RS_RELEASE:-leptris-v1.6.20}"
+LEPTRIS_RS_RELEASE="${LEPTRIS_RS_RELEASE:-leptris-v1.7.0}"
 MOXML_RS_RELEASE="${MOXML_RS_RELEASE:-v0.1.7}"
 
 here="$(cd "$(dirname "$0")/.." && pwd)"
