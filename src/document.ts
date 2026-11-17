@@ -53,6 +53,38 @@ export class Node {
     return this.native.pi_target() ?? undefined;
   }
 
+  /** Single attribute read (element-kind nodes). Convenience over
+   * the batched attributePairs() — the data-plane rule: batched
+   * reads for bulk, this for the one-off lookup. */
+  attribute(name: string): string | undefined {
+    return this.native.attribute(name) ?? undefined;
+  }
+
+  /** The BUDGETED traversal (the data-plane doc's visit shape):
+   * pre-order element rows resuming at `cursor`, at most `budget`
+   * rows per ONE crossing, executed Rust-side. Feed `nextCursor`
+   * back until `done` — stopping early is the point: the walk never
+   * visits what the consumer did not ask for. */
+  elementRowsBatch(cursor: number, budget: number): {
+    rows: unknown[][];
+    nextCursor: number;
+    done: boolean;
+  } {
+    const batch = this.native.element_rows(cursor, budget);
+    return {
+      rows: batch.rows.map((row) => [
+        row.depth,
+        row.name,
+        row.prefix,
+        row.uri,
+        row.text,
+        row.attrs.map((a) => ({ name: a.name, value: a.value })),
+      ]),
+      nextCursor: batch.next_cursor,
+      done: batch.is_done,
+    };
+  }
+
   /** Set an attribute (element-kind nodes). */
   setAttribute(name: string, value: string): void {
     this.native.set_attribute(name, value);
