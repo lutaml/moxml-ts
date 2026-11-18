@@ -338,6 +338,11 @@ export class Node {
     return this.native.text();
   }
 
+  /** Processing-instruction target (PI-kind nodes only), or undefined. */
+  piTarget(): string | undefined {
+    return this.native.pi_target() ?? undefined;
+  }
+
   /** Engine node kind. */
   kind(): number {
     return this.native.kind();
@@ -526,6 +531,44 @@ export class Document {
   /** Create a detached text node owned by this document. */
   createText(text: string): Node {
     const node = this.native.create_text(text);
+    this.fresh.add(node.ptr());
+    return new Node(node, this);
+  }
+
+  /** Create a detached comment node owned by this document. XML 1.0
+   * forbids `--` inside a comment and a trailing `-`, so such text is
+   * refused rather than written as malformed output. */
+  createComment(text: string): Node {
+    if (text.includes("--") || text.endsWith("-")) {
+      throw new Error(`comment text ${JSON.stringify(text)} cannot be written: it contains "--" or ends with "-"`);
+    }
+    const node = this.native.create_comment(text);
+    this.fresh.add(node.ptr());
+    return new Node(node, this);
+  }
+
+  /** Create a detached CDATA section owned by this document. A CDATA
+   * section cannot contain `]]>`, so such text is refused. */
+  createCData(text: string): Node {
+    if (text.includes("]]>")) {
+      throw new Error(`CDATA text ${JSON.stringify(text)} cannot be written: it contains "]]>"`);
+    }
+    const node = this.native.create_cdata(text);
+    this.fresh.add(node.ptr());
+    return new Node(node, this);
+  }
+
+  /** Create a detached processing instruction owned by this document.
+   * The target must be an NCName other than `xml` (any case), and the
+   * data cannot contain `?>`. */
+  createProcessingInstruction(target: string, data: string): Node {
+    if (!valid_lexical("xs:NCName", target) || target.toLowerCase() === "xml") {
+      throw new Error(`invalid processing-instruction target ${JSON.stringify(target)}`);
+    }
+    if (data.includes("?>")) {
+      throw new Error(`processing-instruction data ${JSON.stringify(data)} cannot be written: it contains "?>"`);
+    }
+    const node = this.native.create_pi(target, data);
     this.fresh.add(node.ptr());
     return new Node(node, this);
   }

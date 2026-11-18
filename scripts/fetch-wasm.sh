@@ -7,12 +7,12 @@
 # The pins live here (one line each) so a train bump is a one-line diff.
 set -euo pipefail
 
-LEPTRIS_RS_RELEASE="${LEPTRIS_RS_RELEASE:-leptris-v1.6.5}"
+LEPTRIS_RS_RELEASE="${LEPTRIS_RS_RELEASE:-leptris-v1.9.0}"
 MOXML_RS_RELEASE="${MOXML_RS_RELEASE:-v0.1.1}"
 
 # sha256 of each pinned download. A release bump changes these too; an
 # override of a *_RELEASE variable needs the matching *_SHA256 override.
-LEPTRIS_WASM_SHA256="${LEPTRIS_WASM_SHA256:-a132860d601f4d0da940f563b1dd51bd5c6eea4e2cc45ec7de5a701ca4aec22a}"
+LEPTRIS_WASM_SHA256="${LEPTRIS_WASM_SHA256:-9911f9d1f31ea92a507aedaa0b970ab80b21637ff7e0147fa45ffeceb1f29fe5}"
 MOXML_WASM_SHA256="${MOXML_WASM_SHA256:-97c4307e08ccc4e4afbf90f7fc0270b28551651ac7998776b062fae6ffd186e4}"
 CONFORMANCE_SHA256="${CONFORMANCE_SHA256:-6530bb0dd7a314a4c9bbb39d54e0e9ce203e92ceb4ca09551a6f951965c02545}"
 

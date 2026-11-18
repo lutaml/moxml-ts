@@ -140,19 +140,37 @@ describe("namespace-aware builder", () => {
 
 // UPSTREAM: not fixable over the shipped wasm. Each test pins today's
 // behaviour so the day the export lands it goes red and gets replaced.
-describe("UPSTREAM gaps (leptris-wasm / moxml-wasm exports missing)", () => {
-  it("has no comment, CDATA or PI constructors (needs WasmDocument.create_comment / create_cdata / create_pi)", async () => {
+describe("comment, CDATA and processing-instruction constructors (leptris-v1.9.0)", () => {
+  it("writes and reads back each node kind in document order", async () => {
     const doc = await createDocument();
-    for (const name of ["create_comment", "create_cdata", "create_pi"]) {
-      expect((doc.internal() as unknown as Record<string, unknown>)[name]).toBeUndefined();
-    }
+    doc.setRoot(doc.createElement("r"));
+    const root = doc.root()!;
+    root.addChild(doc.createText("a"));
+    root.addChild(doc.createComment(" c "));
+    root.addChild(doc.createProcessingInstruction("pi", "x y"));
+    root.addChild(doc.createCData("<b>&"));
+    expect(doc.toXml()).toBe("<r>a<!-- c --><?pi x y?><![CDATA[<b>&]]></r>");
+    const kids = (await parse(doc.toXml())).root()!.children();
+    expect(kids.map((k) => [k.kind(), k.text(), k.piTarget()])).toEqual([
+      [2, "a", undefined],
+      [3, " c ", undefined],
+      [5, "x y", "pi"],
+      [4, "<b>&", undefined],
+    ]);
   });
 
-  it("has no attribute removal (needs WasmNode.remove_attribute)", async () => {
-    const root = (await parse('<r a="1"/>')).root()!;
-    expect((root.internal() as unknown as Record<string, unknown>)["remove_attribute"]).toBeUndefined();
+  it("refuses text that would make the output malformed", async () => {
+    const doc = await createDocument();
+    expect(() => doc.createComment("a--b")).toThrow(/--/);
+    expect(() => doc.createComment("a-")).toThrow(/ends with/);
+    expect(() => doc.createCData("x]]>y")).toThrow(/]]>/);
+    expect(() => doc.createProcessingInstruction("xml", "")).toThrow(/target/);
+    expect(() => doc.createProcessingInstruction("1p", "")).toThrow(/target/);
+    expect(() => doc.createProcessingInstruction("p", "a?>b")).toThrow(/\?>/);
   });
+});
 
+describe("UPSTREAM gaps (leptris-wasm / moxml-wasm exports missing)", () => {
   it("has no parse options: an entity bomb expands fully (needs a max-entity-expansion option on WasmDocument parse)", async () => {
     const decls = ['<!ENTITY e1 "aaaaaaaaaa">'];
     for (let i = 2; i <= 6; i++) decls.push(`<!ENTITY e${i} "${`&e${i - 1};`.repeat(10)}">`);
@@ -160,10 +178,6 @@ describe("UPSTREAM gaps (leptris-wasm / moxml-wasm exports missing)", () => {
     expect(doc.xpath("string-length(/r)")).toBe("1000000");
   });
 
-  it("reports no position for malformed input (needs line/column on the parse error)", async () => {
-    const error = await parse("<r>\n<c>\n</r>").catch((e: Error) => e);
-    expect(String(error)).not.toMatch(/line|column|\b3\b/i);
-  });
 });
 
 describe("per-node faces scale linearly", () => {
