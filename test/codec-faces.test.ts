@@ -1,0 +1,340 @@
+// Faces the lutaml-model TypeScript XML codecs need (lutaml/lutaml-model#1033):
+// namespace and attribute reads, a namespace-aware and validated builder.
+// What the shipped wasm cannot do is pinned at the bottom as UPSTREAM
+// gaps: each names the export that would be needed.
+import { beforeAll, describe, expect, it } from "vitest";
+import {
+  AttributeLimitError,
+  MAX_ATTRIBUTES,
+  createDocument,
+  initEngine,
+  initModel,
+  parse,
+} from "../src/index.js";
+
+beforeAll(async () => {
+  await initEngine();
+  await initModel();
+});
+
+const NS =
+  '<a xmlns="urn:d" xmlns:p="urn:p" xmlns:q="urn:q" p:x="1" y="2" q:z="3" xml:lang="en">' +
+  '<p:b p:x="b1"><c/></p:b><p:b/></a>';
+
+describe("namespace reads", () => {
+  it("answers namespaceUri, prefix and localName for elements", async () => {
+    const root = (await parse(NS)).root()!;
+    expect([root.namespaceUri(), root.prefix(), root.localName()]).toEqual(["urn:d", "", "a"]);
+    const [b, b2] = root.children();
+    expect([b.namespaceUri(), b.prefix(), b.localName(), b.qualifiedName(), b.name()]).toEqual([
+      "urn:p", "p", "b", "p:b", "b",
+    ]);
+    expect(b2.namespaceUri()).toBe("urn:p");
+    expect(b.children()[0].namespaceUri()).toBe("urn:d");
+  });
+
+  it("resolves nodes reached through XPath, not only through children()", async () => {
+    const doc = await parse(NS);
+    const [, second] = doc.xpathTyped("/*/*").nodes();
+    expect(second.namespaceUri()).toBe("urn:p");
+    expect(doc.xpathTyped("/*/*/*").nodes()[0].namespaceUri()).toBe("urn:d");
+  });
+
+  it("lists in-scope and declared bindings", async () => {
+    const root = (await parse(NS)).root()!;
+    const prefixes = (root.inScopeNamespaces() ?? []).map((b) => b.prefix).sort();
+    expect(prefixes).toEqual(["", "p", "q", "xml"]);
+    expect(root.declaredNamespaces()).toEqual(
+      expect.arrayContaining([
+        { prefix: "", uri: "urn:d" },
+        { prefix: "p", uri: "urn:p" },
+        { prefix: "q", uri: "urn:q" },
+      ]),
+    );
+    expect(root.children()[0].declaredNamespaces()).toEqual([]);
+  });
+
+  it("answers from the node itself when detached; undefined for non-elements", async () => {
+    const doc = await createDocument();
+    expect(doc.createElement("loose").namespaceUri()).toBe("");
+    expect(doc.createText("t").namespaceUri()).toBeUndefined();
+  });
+});
+
+describe("attributes", () => {
+  it("lists name, prefix, local name, namespace URI and value", async () => {
+    const root = (await parse(NS)).root()!;
+    expect(root.attributes()).toEqual([
+      { name: "p:x", prefix: "p", localName: "x", namespaceUri: "urn:p", value: "1" },
+      { name: "y", prefix: "", localName: "y", namespaceUri: "", value: "2" },
+      { name: "q:z", prefix: "q", localName: "z", namespaceUri: "urn:q", value: "3" },
+      {
+        name: "xml:lang", prefix: "xml", localName: "lang",
+        namespaceUri: "http://www.w3.org/XML/1998/namespace", value: "en",
+      },
+    ]);
+  });
+
+  it("does not list xmlns declarations as attributes", async () => {
+    const attrs = (await parse('<r xmlns:p="urn:p" a="1"/>')).root()!.attributes()!;
+    expect(attrs.map((a) => a.name)).toEqual(["a"]);
+  });
+
+  it("reads values with entities decoded and by name", async () => {
+    const root = (await parse('<r a="x &amp; y"/>')).root()!;
+    expect(root.getAttribute("a")).toBe("x & y");
+    expect(root.getAttribute("missing")).toBeUndefined();
+  });
+
+  it("resolves a prefix declared on an ancestor", async () => {
+    const root = (await parse('<r xmlns:p="urn:p"><c p:k="v"/></r>')).root()!;
+    expect(root.children()[0].attributes()![0].namespaceUri).toBe("urn:p");
+  });
+});
+
+describe("namespace-aware builder", () => {
+  it("builds prefixed and default-namespace elements that round-trip", async () => {
+    const doc = await createDocument();
+    const root = doc.setRoot(doc.createElementNS("urn:d", "root"));
+    const child = doc.createElementNS("urn:p", "p:child");
+    child.setAttributeNS("urn:p", "p:k", "v");
+    child.setAttributeNS("urn:q", "q:z", "w");
+    root.addChild(child).addChild(doc.createText("hi"));
+    const xml = doc.toXml();
+    expect(xml).toContain('xmlns="urn:d"');
+    const back = (await parse(xml)).root()!;
+    expect(back.namespaceUri()).toBe("urn:d");
+    const c = back.children()[0];
+    expect(c.namespaceUri()).toBe("urn:p");
+    expect(c.attributes()!.map((a) => [a.name, a.namespaceUri, a.value])).toEqual([
+      ["p:k", "urn:p", "v"],
+      ["q:z", "urn:q", "w"],
+    ]);
+    expect(c.text()).toBe("hi");
+  });
+
+  it("does not redeclare a prefix already bound to the same URI in scope", async () => {
+    const doc = await createDocument();
+    const root = doc.setRoot(doc.createElementNS("urn:p", "p:root"));
+    root.setAttributeNS("urn:p", "p:k", "v");
+    expect(doc.toXml().match(/xmlns:p=/g)).toHaveLength(1);
+  });
+
+  it("rejects an inconsistent prefix/namespace pair", async () => {
+    const doc = await createDocument();
+    expect(() => doc.createElementNS("", "p:e")).toThrow(/needs a namespace/);
+    const e = doc.createElement("e");
+    expect(() => e.setAttributeNS("urn:x", "k", "v")).toThrow(/needs a prefix/);
+    expect(() => e.setAttributeNS("", "p:k", "v")).toThrow(/needs a namespace/);
+  });
+
+  it("rejects invalid element and attribute names", async () => {
+    const doc = await createDocument();
+    for (const bad of ["", "1a", "a b", "a:b:c", "<x>", "a\"b"]) {
+      expect(() => doc.createElement(bad), bad).toThrow(/invalid element name/);
+    }
+    expect(() => doc.createElement("ok").setAttribute("a b", "v")).toThrow(/invalid attribute name/);
+    expect(() => doc.createElement("ok").setAttribute("xmlns:p", "urn:p")).not.toThrow();
+  });
+});
+
+// UPSTREAM: not fixable over the shipped wasm. Each test pins today's
+// behaviour so the day the export lands it goes red and gets replaced.
+describe("UPSTREAM gaps — CLOSED at leptris-v1.6.16 (the tier-2 faces shipped)", () => {
+  it("has comment, CDATA and PI constructors (shipped since 1.6.16)", async () => {
+    const doc = await createDocument();
+    for (const name of ["create_comment", "create_cdata", "create_pi"]) {
+      expect(typeof (doc.internal() as unknown as Record<string, unknown>)[name]).toBe("function");
+    }
+  });
+
+  it("has attribute removal (shipped since 1.6.16)", async () => {
+    const root = (await parse('<r a="1"/>')).root()!;
+    expect(typeof (root.internal() as unknown as Record<string, unknown>)["remove_attribute"]).toBe("function");
+  });
+
+  it("has no parse options: an entity bomb expands fully (needs a max-entity-expansion option on WasmDocument parse)", async () => {
+    const decls = ['<!ENTITY e1 "aaaaaaaaaa">'];
+    for (let i = 2; i <= 6; i++) decls.push(`<!ENTITY e${i} "${`&e${i - 1};`.repeat(10)}">`);
+    const doc = await parse(`<!DOCTYPE r [${decls.join("")}]><r>&e6;</r>`);
+    expect(doc.xpath("string-length(/r)")).toBe("1000000");
+  });
+
+  it("reports line/column for malformed input (shipped since 1.6.16)", async () => {
+    const error = await parse("<r>\n<c>\n</r>").catch((e: Error) => e);
+    expect(String(error)).toMatch(/line|column/i);
+  });
+});
+
+describe("per-node faces scale linearly", () => {
+  it("20,000 siblings: namespaceUri() + attributes() under 500 ms", async () => {
+    const n = 20000;
+    const xml =
+      '<r xmlns="urn:d" xmlns:p="urn:p">' +
+      Array.from({ length: n }, (_, i) => `<p:c y="2" p:k="${i}"/>`).join("") +
+      "</r>";
+    const root = (await parse(xml)).root()!;
+    const kids = root.children();
+    const t0 = performance.now();
+    let ok = 0;
+    for (const kid of kids) {
+      const attrs = kid.attributes()!;
+      if (kid.namespaceUri() === "urn:p" && attrs[1].namespaceUri === "urn:p" && attrs[0].namespaceUri === "") ok++;
+    }
+    const ms = performance.now() - t0;
+    console.log(`faces timing: ${n} siblings in ${ms.toFixed(1)} ms`);
+    expect(ok).toBe(n);
+    expect(ms).toBeLessThan(500);
+  });
+});
+
+describe("attribute snapshot engine trap", () => {
+  it("still answers attributes for a no-namespace attribute after a namespaced one", async () => {
+    const xml =
+      '<r xmlns:p="urn:p">' +
+      Array.from({ length: 300 }, (_, i) => `<c p:k="${i}" y="2"/>`).join("") +
+      "</r>";
+    const kids = (await parse(xml)).root()!.children();
+    for (const [i, kid] of kids.entries()) {
+      expect(kid.attributes()).toEqual([
+        { name: "p:k", prefix: "p", localName: "k", namespaceUri: "urn:p", value: String(i) },
+        { name: "y", prefix: "", localName: "y", namespaceUri: "", value: "2" },
+      ]);
+    }
+  });
+});
+
+describe("attribute snapshot soak", () => {
+  it("parses 10,000 documents with a no-namespace attribute after a namespaced one", async () => {
+    for (let i = 0; i < 10_000; i++) {
+      const doc = await parse('<a xmlns:p="urn:u" p:x="1" y="2"/>');
+      const attrs = doc.root()!.attributes()!;
+      expect(attrs.length).toBe(2);
+      expect(attrs[1].value).toBe("2");
+    }
+  }, 120_000);
+});
+
+describe("round-2 probe findings", () => {
+  const TRAP = '<r><a xmlns:p="urn:u" p:x="1" y="2"/><b/></r>';
+
+  it("F1: a trap-shaped element moved under a detached holder never reaches the native snapshot", async () => {
+    // Before: attributes() returned undefined, set snapshotTrapped, and ~4000
+    // caught traps killed the process (memory access out of bounds).
+    for (let i = 0; i < 6000; i++) {
+      const doc = await parse(TRAP);
+      const [a] = doc.xpathTyped("/r/a").nodes();
+      const moved = doc.createElement("holder").addChild(a);
+      expect(() => moved.attributes()).toThrow(/detached/);
+      expect(doc.snapshotTrapped).toBe(false);
+    }
+  }, 120_000);
+
+  it("F1: once the moved element is attached again its attributes are all read", async () => {
+    const doc = await parse(TRAP);
+    const [a] = doc.xpathTyped("/r/a").nodes();
+    const holder = doc.createElement("holder");
+    const moved = holder.addChild(a);
+    const attached = doc.root()!.addChild(holder).children()[0];
+    expect(moved.qualifiedName()).toBe("a");
+    expect(attached.attributes()!.map((x) => [x.name, x.namespaceUri, x.value])).toEqual([
+      ["p:x", "urn:u", "1"],
+      ["y", "", "2"],
+    ]);
+    expect(doc.snapshotTrapped).toBe(false);
+  });
+
+  it("F2: moving an attached node does not leave stale paths on its siblings", async () => {
+    const doc = await parse('<r><a xmlns:pa="urn:a"/><b xmlns:pb="urn:b"/><c xmlns:pc="urn:c"/></r>');
+    const root = doc.root()!;
+    const [a, b, c] = root.children();
+    expect(b.declaredNamespaces()).toEqual([{ prefix: "pb", uri: "urn:b" }]);
+    root.addChild(a);
+    expect(doc.xpath("concat(name(/r/*[1]),name(/r/*[2]),name(/r/*[3]))")).toBe("bca");
+    expect(b.declaredNamespaces()).toEqual([{ prefix: "pb", uri: "urn:b" }]);
+    expect(c.declaredNamespaces()).toEqual([{ prefix: "pc", uri: "urn:c" }]);
+    expect(root.children().map((n) => n.declaredNamespaces()![0].prefix)).toEqual(["pb", "pc", "pa"]);
+  });
+
+  it("F3: the XPath fallback and the snapshot report the same attributes", async () => {
+    // Builder documents are read through XPath; parsed ones through the snapshot.
+    const built = await createDocument();
+    const r = built.setRoot(built.createElement("a"));
+    r.setAttributeNS("urn:u", "p:x", "1");
+    r.setAttribute("y", "2");
+    const parsed = (await parse('<a xmlns:p="urn:u" p:x="1" y="2"/>')).root()!;
+    const view = (n: typeof r) => n.attributes()!.map((x) => [x.name, x.namespaceUri, x.value]);
+    expect(view(r)).toEqual([
+      ["p:x", "urn:u", "1"],
+      ["y", "", "2"],
+    ]);
+    expect(view(r)).toEqual(view(parsed));
+    expect(r.getAttribute("xmlns:p")).toBeUndefined();
+  });
+});
+
+describe("wide elements (leptris-wasm keeps the attribute count in a byte)", () => {
+  const wide = (n: number, extra = "") =>
+    `<r id="1" ${extra}` + Array.from({ length: n }, (_, i) => `a${i}="v${i}"`).join(" ") + "/>";
+
+  // 254 extras + id = 255 attributes is the widest the engine reads back.
+  it.each([0, 10, 253, 254])("reads every attribute exactly at %i extras", async (n) => {
+    const attrs = (await parse(wide(n))).root()!.attributes()!;
+    expect(attrs).toHaveLength(n + 1);
+    expect(attrs.map((a) => [a.name, a.value])).toEqual([
+      ["id", "1"],
+      ...Array.from({ length: n }, (_, i) => [`a${i}`, `v${i}`]),
+    ]);
+  });
+
+  it("namespace declarations count toward the limit", async () => {
+    const decls = (n: number) =>
+      Array.from({ length: n }, (_, i) => `xmlns:p${i}="u${i}"`).join(" ") + " ";
+    const attrs = (await parse(wide(249, decls(5)))).root()!.attributes()!;
+    expect(attrs).toHaveLength(250); // id + 249; the 5 declarations are not attributes
+    await expect(parse(wide(249, decls(6)))).rejects.toBeInstanceOf(AttributeLimitError);
+  });
+
+  it.each([255, 256, 257, 300, 1000, 50000])(
+    "refuses %i extras (id included in the count) with a typed error, and the engine keeps working",
+    async (n) => {
+      const err = await parse(wide(n)).then(
+        () => undefined,
+        (e: unknown) => e,
+      );
+      expect(err).toBeInstanceOf(AttributeLimitError);
+      expect(err).toMatchObject({ reason: "attribute_limit", count: n + 1, limit: MAX_ATTRIBUTES });
+      const after = (await parse(wide(3))).root()!.attributes()!;
+      expect(after.map((a) => a.value)).toEqual(["1", "v0", "v1", "v2"]);
+    },
+  );
+
+  it("refuses a wide child element, not only the root", async () => {
+    await expect(parse(`<top><ok a="1"/>${wide(300)}</top>`)).rejects.toBeInstanceOf(
+      AttributeLimitError,
+    );
+  });
+
+  it("the builder refuses the attribute past the limit and stays readable", async () => {
+    const doc = await createDocument();
+    const r = doc.setRoot(doc.createElement("r"));
+    for (let i = 0; i < MAX_ATTRIBUTES; i++) r.setAttribute(`a${i}`, `v${i}`);
+    r.setAttribute("a0", "again"); // replacing is not growth
+    expect(() => r.setAttribute("one-too-many", "x")).toThrow(AttributeLimitError);
+    expect(() => r.declareNamespace("p", "urn:p")).toThrow(AttributeLimitError);
+    expect(() => r.setAttributeNS("urn:p", "p:z", "x")).toThrow(AttributeLimitError);
+    const attrs = r.attributes()!;
+    expect(attrs).toHaveLength(MAX_ATTRIBUTES);
+    expect(attrs[0]).toMatchObject({ name: "a0", value: "again" });
+    expect(attrs.at(-1)).toMatchObject({ name: `a${MAX_ATTRIBUTES - 1}` });
+    expect((await parse(wide(2))).root()!.attributes()).toHaveLength(3);
+  });
+
+  it("the builder limit counts attributes a parsed element already has", async () => {
+    const doc = await parse(wide(253));
+    const r = doc.root()!;
+    r.setAttribute("x1", "1"); // 255th
+    expect(() => r.setAttribute("x2", "2")).toThrow(AttributeLimitError);
+    expect(r.attributes()).toHaveLength(255);
+  });
+});
