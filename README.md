@@ -29,9 +29,9 @@ Permissions mirror [lutaml/moxml](https://github.com/lutaml/moxml) (staff admin;
 These need a change in moxml-rs / leptris, so they are not faked in TypeScript;
 `test/codec-faces.test.ts` pins each so it goes red when the export lands.
 
-- Comment, CDATA and processing-instruction nodes: `WasmDocument.create_comment`,
-  `create_cdata`, `create_pi`.
-- Removing an attribute: `WasmNode.remove_attribute`.
 - Parse policy: a parse-options argument with a maximum entity expansion
   (a 10^6x entity bomb currently expands in full).
-- Malformed-input errors with line and column.
+
+Comment, CDATA and processing-instruction constructors, attribute removal
+and parse-error positions shipped in leptris-wasm 1.6.16; the Document face
+exposes `createComment`, `createCData` and `createProcessingInstruction`.

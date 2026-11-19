@@ -140,6 +140,36 @@ describe("namespace-aware builder", () => {
 
 // UPSTREAM: not fixable over the shipped wasm. Each test pins today's
 // behaviour so the day the export lands it goes red and gets replaced.
+describe("comment, CDATA and processing-instruction constructors", () => {
+  it("writes and reads back each node kind in document order", async () => {
+    const doc = await createDocument();
+    doc.setRoot(doc.createElement("r"));
+    const root = doc.root()!;
+    root.addChild(doc.createText("a"));
+    root.addChild(doc.createComment(" c "));
+    root.addChild(doc.createProcessingInstruction("pi", "x y"));
+    root.addChild(doc.createCData("<b>&"));
+    expect(doc.toXml()).toBe("<r>a<!-- c --><?pi x y?><![CDATA[<b>&]]></r>");
+    const kids = (await parse(doc.toXml())).root()!.children();
+    expect(kids.map((k) => [k.kind(), k.text(), k.piTarget()])).toEqual([
+      [2, "a", undefined],
+      [3, " c ", undefined],
+      [5, "x y", "pi"],
+      [4, "<b>&", undefined],
+    ]);
+  });
+
+  it("refuses text that would make the output malformed", async () => {
+    const doc = await createDocument();
+    expect(() => doc.createComment("a--b")).toThrow(/--/);
+    expect(() => doc.createComment("a-")).toThrow(/ends with/);
+    expect(() => doc.createCData("x]]>y")).toThrow(/]]>/);
+    expect(() => doc.createProcessingInstruction("xml", "")).toThrow(/target/);
+    expect(() => doc.createProcessingInstruction("1p", "")).toThrow(/target/);
+    expect(() => doc.createProcessingInstruction("p", "a?>b")).toThrow(/\?>/);
+  });
+});
+
 describe("UPSTREAM gaps — CLOSED at leptris-v1.6.16 (the tier-2 faces shipped)", () => {
   it("has comment, CDATA and PI constructors (shipped since 1.6.16)", async () => {
     const doc = await createDocument();
