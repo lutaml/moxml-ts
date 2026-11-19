@@ -23,3 +23,15 @@ See [docs/architecture.md](docs/architecture.md) for the layered architecture an
 ## Team
 
 Permissions mirror [lutaml/moxml](https://github.com/lutaml/moxml) (staff admin; developers/ci/editors push). All changes via PRs.
+
+## Gaps that need a wasm export (not shimmed here)
+
+These need a change in moxml-rs / leptris, so they are not faked in TypeScript;
+`test/codec-faces.test.ts` pins each so it goes red when the export lands.
+
+- Parse policy: a parse-options argument with a maximum entity expansion
+  (a 10^6x entity bomb currently expands in full).
+
+Comment, CDATA and processing-instruction constructors, attribute removal
+and parse-error positions shipped in leptris-wasm 1.6.16; the Document face
+exposes `createComment`, `createCData` and `createProcessingInstruction`.
