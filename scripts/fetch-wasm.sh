@@ -3,7 +3,8 @@
 #   engine tier  — leptris-wasm from the leptris-rs release
 #   model tier   — moxml-wasm  from the moxml-rs release (the pure-logic
 #                  model faces; one implementation, bound per language)
-# plus test/data/moxml-conformance.json at the moxml-rs pin.
+# plus test/data/moxml-conformance.json and test/data/data-plane-rows.json
+# at the moxml-rs pin.
 # The pins live here (one line each) so a train bump is a one-line diff.
 set -euo pipefail
 
@@ -15,6 +16,7 @@ MOXML_RS_RELEASE="${MOXML_RS_RELEASE:-v0.1.7}"
 LEPTRIS_WASM_SHA256="${LEPTRIS_WASM_SHA256:-9911f9d1f31ea92a507aedaa0b970ab80b21637ff7e0147fa45ffeceb1f29fe5}"
 MOXML_WASM_SHA256="${MOXML_WASM_SHA256:-941f48769d81d7e74090ccc651b57c508de4fdaabe5221afd4a04e6226706bf7}"
 CONFORMANCE_SHA256="${CONFORMANCE_SHA256:-6d4921c9bef9386bf942ce62d5e4227f439f424542284d8b607a7fdfa199567c}"
+ROWS_SHA256="${ROWS_SHA256:-ee2f4415106be2fb0d16373537c7785a841d90f435accb95d7dde3fa7768823c}"
 
 sha256_of() {
   if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1
@@ -79,8 +81,11 @@ rows_pin="$here/test/data/.rows-pin"
 rows="$here/test/data/data-plane-rows.json"
 if [ ! -f "$rows_pin" ] || [ "$(cat "$rows_pin")" != "$MOXML_RS_RELEASE" ]; then
   mkdir -p "$(dirname "$rows")"
-  gh api "repos/lutaml/moxml-rs/contents/tests/data/data-plane-rows.json?ref=$MOXML_RS_RELEASE" \
-    -H "Accept: application/vnd.github.raw" > "$rows"
+  tmp_rows="$(mktemp)"
+  curl -fsSL -o "$tmp_rows" \
+    "https://raw.githubusercontent.com/lutaml/moxml-rs/$MOXML_RS_RELEASE/tests/data/data-plane-rows.json"
+  verify_sha "$tmp_rows" "$ROWS_SHA256" "data-plane-rows.json"
+  mv "$tmp_rows" "$rows"
   printf '%s\n' "$MOXML_RS_RELEASE" > "$rows_pin"
   echo "test/data/data-plane-rows.json fetched at $MOXML_RS_RELEASE"
 fi
