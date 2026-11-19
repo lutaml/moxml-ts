@@ -689,8 +689,50 @@ export async function parse(xml: string): Promise<Document> {
   return new Document(new WasmDocument(xml), scan.mayTrap);
 }
 
-const TAG = /<[^\s/>!?]+((?:\s+[^\s=/>]+\s*=\s*(?:"[^"]*"|'[^']*'))*)\s*\/?>/g;
-const ATTR = /([^\s=]+)\s*=\s*(?:"[^"]*"|'[^']*')/g;
+const isSpace = (c: string): boolean => c === " " || c === "\t" || c === "\n" || c === "\r";
+
+/** The attribute names of the start tag opening at `xml[lt]` ("<"), and
+ * the index just past its ">", or undefined when no well-formed start
+ * tag opens there. No backtracking regex: a name stops at "<" (never
+ * part of an XML name), and a quote with no closing match is remembered
+ * in `unclosed`, so hostile input such as a long run of "<" stays linear. */
+function startTagAt(
+  xml: string,
+  lt: number,
+  unclosed: Set<string>,
+): { names: string[]; next: number } | undefined {
+  const n = xml.length;
+  let i = lt + 1;
+  const nameStart = i;
+  while (i < n && !isSpace(xml[i]!) && !"/>!?<".includes(xml[i]!)) i++;
+  if (i === nameStart) return undefined;
+  const names: string[] = [];
+  for (;;) {
+    const wsStart = i;
+    while (i < n && isSpace(xml[i]!)) i++;
+    if (i >= n) return undefined;
+    if (xml[i] === "/") return xml[i + 1] === ">" ? { names, next: i + 2 } : undefined;
+    if (xml[i] === ">") return { names, next: i + 1 };
+    if (i === wsStart) return undefined;
+    const attrStart = i;
+    while (i < n && !isSpace(xml[i]!) && !"=/><".includes(xml[i]!)) i++;
+    if (i === attrStart) return undefined;
+    const name = xml.slice(attrStart, i);
+    while (i < n && isSpace(xml[i]!)) i++;
+    if (xml[i] !== "=") return undefined;
+    i++;
+    while (i < n && isSpace(xml[i]!)) i++;
+    const quote = xml[i];
+    if ((quote !== '"' && quote !== "'") || unclosed.has(quote)) return undefined;
+    const close = xml.indexOf(quote, i + 1);
+    if (close < 0) {
+      unclosed.add(quote);
+      return undefined;
+    }
+    i = close + 1;
+    names.push(name);
+  }
+}
 
 /** One pass over the start tags: whether any has a prefixed attribute
  * followed by an unprefixed one (declarations aside), the only shape
@@ -701,17 +743,22 @@ const ATTR = /([^\s=]+)\s*=\s*(?:"[^"]*"|'[^']*')/g;
 function scanSource(xml: string): { mayTrap: boolean; widest: number } {
   let mayTrap = false;
   let widest = 0;
-  for (const tag of xml.matchAll(TAG)) {
+  const unclosed = new Set<string>();
+  let at = xml.indexOf("<");
+  while (at >= 0) {
+    const tag = startTagAt(xml, at, unclosed);
+    if (tag === undefined) {
+      at = xml.indexOf("<", at + 1);
+      continue;
+    }
     let prefixedSeen = false;
-    let count = 0;
-    for (const attr of (tag[1] ?? "").matchAll(ATTR)) {
-      const name = attr[1] ?? "";
-      count += 1;
+    for (const name of tag.names) {
       if (name === "xmlns" || name.startsWith("xmlns:")) continue;
       if (name.includes(":")) prefixedSeen = true;
       else if (prefixedSeen) mayTrap = true;
     }
-    if (count > widest) widest = count;
+    if (tag.names.length > widest) widest = tag.names.length;
+    at = xml.indexOf("<", tag.next);
   }
   return { mayTrap, widest };
 }
