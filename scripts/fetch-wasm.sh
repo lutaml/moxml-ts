@@ -9,7 +9,7 @@
 set -euo pipefail
 
 LEPTRIS_RS_RELEASE="${LEPTRIS_RS_RELEASE:-leptris-v1.9.0}"
-MOXML_RS_RELEASE="${MOXML_RS_RELEASE:-v0.1.7}"
+MOXML_RS_RELEASE="${MOXML_RS_RELEASE:-v0.1.8}"
 
 # sha256 of each pinned download. A release bump changes these too; an
 # override of a *_RELEASE variable needs the matching *_SHA256 override.
